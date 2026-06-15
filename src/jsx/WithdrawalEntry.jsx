@@ -1,21 +1,37 @@
 import React, { useMemo, useState, useRef, useEffect } from 'react';
+import { getToken } from '../services/authStorage';
 import '../css/WithdrawalEntry.css';
+
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
+const WITHDRAWALS_ENDPOINT = '/api/withdrawals';
+const COST_UNITS_ENDPOINT = '/api/costunits';
+const defaultWithdrawalTypes = [
+  { id: '1', code: '001', description: 'WITHRAWAL' },
+  { id: '2', code: '002', description: 'PULL-OUT' },
+  { id: '3', code: '003', description: 'SUPPLIER RETURN' },
+];
 
 const todayIso = new Date().toISOString().slice(0, 10);
 const emptyForm = {
   transactionNo: '',
   transactionDate: todayIso,
   withdrawalType: '',
+  withdrawalTypeId: '',
+  recipientId: '',
   recipientCode: '',
   recipientName: '',
   address: '',
+  reasonId: '',
   reasonCode: '',
   reasonDescription: '',
   remarks: '',
   warehouse: '',
+  warehouseKey: '',
+  chargeToId: '',
   chargeToCode: '',
   chargeToName: '',
   company: '',
+  companyKey: '',
   referenceType: '',
   referenceNo: '',
   createdBy: '',
@@ -41,34 +57,43 @@ const detailTabs = [
   { id: 'insufficient', label: 'Insufficient Stocks' },
 ];
 
-const lookupData = {
-  recipient: [
-    { code: 'CUST-001', description: 'Northern Luzon Customer', address: 'Balintawak, Quezon City' },
-    { code: 'EMP-014', description: 'Charlvn Talatayod', address: 'Head Office' },
-  ],
-  reason: [
-    { code: 'SAMPLE', description: 'Sample issuance' },
-    { code: 'DAMAGE', description: 'Damaged stock replacement' },
-  ],
-  warehouse: [
-    { code: 'MAIN', description: 'Main Warehouse' },
-    { code: 'COLD', description: 'Cold Storage Warehouse' },
-  ],
-  chargeTo: [
-    { code: 'OPS', description: 'Operations Department' },
-    { code: 'SALES', description: 'Sales Team' },
-  ],
-  company: [
-    { code: 'MDLI', description: 'Masigasig Distribution and Logistics Inc.' },
-    { code: 'ETR', description: 'ETR Total Business Solutions Provider' },
-  ],
-  item: [
-    { code: 'ITM-001', description: 'Sample Inventory Item', unit: 'BOX' },
-    { code: 'ITM-002', description: 'Promo Stock Item', unit: 'PCS' },
-  ],
-};
-
 const actionLabels = ['New', 'Edit', 'Save', 'Approve', 'Reject', 'Print'];
+
+function buildApiUrl(path) {
+  return apiBaseUrl ? `${apiBaseUrl}${path}` : path;
+}
+
+function getApiCollection(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.$values)) return data.$values;
+  if (Array.isArray(data?.items)) return data.items;
+  if (Array.isArray(data?.data)) return data.data;
+  if (Array.isArray(data?.result)) return data.result;
+  if (Array.isArray(data?.records)) return data.records;
+
+  return [];
+}
+
+function getField(row, fieldNames) {
+  for (const fieldName of fieldNames) {
+    const value = row?.[fieldName];
+
+    if (value !== undefined && value !== null && String(value).trim()) {
+      return String(value).trim();
+    }
+  }
+
+  return '';
+}
+
+function toApiDate(value) {
+  return value || '1900-01-01';
+}
+
+function toNumberOrDefault(value, fallback = -1) {
+  const numberValue = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(numberValue) && numberValue !== 0 ? numberValue : fallback;
+}
 
 function createBlankDetailRow() {
   return {
@@ -134,8 +159,7 @@ function Field({ label, children, link = false, className = '', error = '', onLa
   );
 }
 
-function LookupModal({ type, title, onClose, onSelect }) {
-  const rows = lookupData[type] || [];
+function LookupModal({ title, rows, isLoading = false, error = '', onClose, onSelect }) {
   const [query, setQuery] = useState('');
   const filteredRows = rows.filter((row) => `${row.code} ${row.description}`.toLowerCase().includes(query.trim().toLowerCase()));
 
@@ -151,8 +175,11 @@ function LookupModal({ type, title, onClose, onSelect }) {
         </div>
         <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search code or description" />
         <div className="etr-withdrawal-lookup-list">
+          {isLoading ? <span>Loading...</span> : null}
+          {!isLoading && error ? <span>{error}</span> : null}
+          {!isLoading && !error && filteredRows.length === 0 ? <span>No records found.</span> : null}
           {filteredRows.map((row) => (
-            <button type="button" key={`${row.code}-${row.description}`} onClick={() => onSelect(row)}>
+            <button type="button" key={`${row.id ?? row.code}-${row.code}-${row.description}`} onClick={() => onSelect(row)}>
               <strong>{row.code}</strong>
               <span>{row.description}</span>
             </button>
@@ -204,6 +231,18 @@ export default function WithdrawalEntry() {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [pendingItemLookupRow, setPendingItemLookupRow] = useState(null);
   const [withdrawalId, setWithdrawalId] = useState(-1);
+  const [withdrawalTypeRows, setWithdrawalTypeRows] = useState(defaultWithdrawalTypes);
+  const [lookupRows, setLookupRows] = useState({
+    recipient: [],
+    reason: [],
+    warehouse: [],
+    chargeTo: [],
+    company: [],
+    item: [],
+  });
+  const [lookupError, setLookupError] = useState('');
+  const [isLookupLoading, setIsLookupLoading] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const tableBodyRef = useRef(null);
 
   const totals = useMemo(() => ({
@@ -261,6 +300,129 @@ export default function WithdrawalEntry() {
     }
   }, [details, isEditing]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+
+    const loadInitialData = async () => {
+      const token = getToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      try {
+        const [typeResponse, warehouseResponse, companyResponse, costUnitResponse, recipientResponse] = await Promise.all([
+          fetch(buildApiUrl(`${WITHDRAWALS_ENDPOINT}/types`), { headers, signal: controller.signal }),
+          fetch(buildApiUrl(`${WITHDRAWALS_ENDPOINT}/warehouses`), { headers, signal: controller.signal }),
+          fetch(buildApiUrl(`${WITHDRAWALS_ENDPOINT}/companies`), { headers, signal: controller.signal }),
+          fetch(buildApiUrl(COST_UNITS_ENDPOINT), { headers, signal: controller.signal }),
+          fetch(buildApiUrl(`${WITHDRAWALS_ENDPOINT}/recipients`), { headers, signal: controller.signal }),
+        ]);
+
+        const [typeData, warehouseData, companyData, costUnitData, recipientData] = await Promise.all([
+          typeResponse.json().catch(() => ({})),
+          warehouseResponse.json().catch(() => ({})),
+          companyResponse.json().catch(() => ({})),
+          costUnitResponse.json().catch(() => ({})),
+          recipientResponse.json().catch(() => ({})),
+        ]);
+
+        if (!typeResponse.ok) throw new Error(typeData?.message || 'Unable to load withdrawal types.');
+        if (!warehouseResponse.ok) throw new Error(warehouseData?.message || 'Unable to load warehouses.');
+        if (!companyResponse.ok) throw new Error(companyData?.message || 'Unable to load companies.');
+        if (!costUnitResponse.ok) throw new Error(costUnitData?.message || 'Unable to load cost units.');
+        if (!recipientResponse.ok) throw new Error(recipientData?.message || 'Unable to load recipients.');
+
+        const costUnits = getApiCollection(costUnitData).map((row) => ({
+          id: getField(row, ['costUnitID', 'costUnitId', 'id', 'Id']),
+          code: getField(row, ['code', 'Code']),
+          description: getField(row, ['description', 'Description']),
+        })).filter((row) => row.id && row.code && row.description);
+
+        const withdrawalTypes = getApiCollection(typeData).map((row) => ({
+          id: getField(row, ['id', 'Id']),
+          code: getField(row, ['code', 'Code']),
+          description: getField(row, ['description', 'Description']),
+        })).filter((row) => row.id && row.description);
+
+        setWithdrawalTypeRows(withdrawalTypes.length ? withdrawalTypes : defaultWithdrawalTypes);
+        setLookupRows((current) => ({
+          ...current,
+          recipient: getApiCollection(recipientData).map((row) => ({
+            id: getField(row, ['id', 'Id']),
+            code: getField(row, ['code', 'Code']),
+            description: getField(row, ['description', 'Description']),
+            address: getField(row, ['address', 'Address', 'addressString', 'AddressString']),
+          })).filter((row) => row.id && row.code && row.description),
+          chargeTo: costUnits,
+          warehouse: getApiCollection(warehouseData).map((row) => ({
+            id: getField(row, ['id', 'Id']),
+            code: getField(row, ['code', 'Code']),
+            description: getField(row, ['description', 'Description']),
+          })).filter((row) => row.id && row.description),
+          company: getApiCollection(companyData).map((row) => ({
+            id: getField(row, ['id', 'Id']),
+            code: getField(row, ['code', 'Code']),
+            description: getField(row, ['description', 'Description']),
+          })).filter((row) => row.id && row.description),
+        }));
+      } catch (error) {
+        if (error.name !== 'AbortError') {
+          setMessage(error.message || 'Unable to load withdrawal setup data.');
+        }
+      }
+    };
+
+    loadInitialData();
+
+    return () => controller.abort();
+  }, []);
+
+  const loadLookupRows = async (type) => {
+    if (!['recipient', 'reason', 'item'].includes(type)) {
+      return;
+    }
+
+    const token = getToken();
+    setIsLookupLoading(true);
+    setLookupError('');
+
+    try {
+      const endpoint = type === 'reason'
+        ? `${WITHDRAWALS_ENDPOINT}/reasons`
+        : type === 'recipient'
+          ? `${WITHDRAWALS_ENDPOINT}/recipients`
+        : `${WITHDRAWALS_ENDPOINT}/items`;
+      const response = await fetch(buildApiUrl(endpoint), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data?.message || `Unable to load ${type} options.`);
+      }
+
+      setLookupRows((current) => ({
+        ...current,
+        [type]: getApiCollection(data).map((row) => ({
+          id: getField(row, ['id', 'Id']),
+          code: getField(row, ['code', 'Code']),
+          description: getField(row, ['description', 'Description']),
+          address: getField(row, ['address', 'Address', 'addressString', 'AddressString']),
+          unitId: getField(row, ['unitID', 'unitId', 'UnitID', 'UnitId']),
+          unit: getField(row, ['unit', 'Unit']),
+        })).filter((row) => row.id && row.description),
+      }));
+    } catch (error) {
+      setLookupError(error.message || `Unable to load ${type} options.`);
+    } finally {
+      setIsLookupLoading(false);
+    }
+  };
+
+  const openLookup = (type) => {
+    setLookup(type);
+    setLookupError('');
+    loadLookupRows(type);
+  };
+
   const updateForm = (field, value) => {
     setFormData((current) => ({ ...current, [field]: value }));
     setErrors((current) => ({ ...current, [field]: '' }));
@@ -280,101 +442,112 @@ export default function WithdrawalEntry() {
     }));
   };
 
-  const preallocateStocks = (itemKey, unitKey, quantity, warehouseKey, locationKey) => {
-    const allocatedQuantity = Math.min(quantity, 100);
-    const unallocatedQuantity = quantity - allocatedQuantity;
-    
-    return {
-      preallocated: allocatedQuantity > 0 ? [{
-        warehouseKey,
-        locationKey,
-        lotNumber: `LOT-${Date.now()}`,
-        manufacturingDate: new Date(),
-        expirationDate: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-        quantity: allocatedQuantity,
-      }] : [],
-      unallocatedQuantity,
-    };
+  const preallocateStocks = async (itemKey, unitKey, quantity, warehouseKey, locationKey) => {
+    const token = getToken();
+    const response = await fetch(buildApiUrl(`${WITHDRAWALS_ENDPOINT}/preallocate`), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({
+        itemID: toNumberOrDefault(itemKey),
+        packagingUnitID: toNumberOrDefault(unitKey),
+        quantity,
+        warehouseID: toNumberOrDefault(warehouseKey),
+        warehouseLocationID: toNumberOrDefault(locationKey),
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data?.message || 'Unable to preallocate stocks.');
+    }
+
+    return data;
   };
 
-  const processQuantityChange = (itemKey, newQuantity) => {
+  const processQuantityChange = async (itemKey, newQuantity) => {
     const detailRow = details.find(d => d.itemKey === itemKey);
     if (!detailRow) return;
 
     const remainingAllocations = allocations.filter(a => a.itemKey !== itemKey);
     const remainingInsufficient = insufficientStocks.filter(i => i.itemKey !== itemKey);
     
-    const warehouseKey = formData.warehouse ? parseInt(formData.warehouse) || -1 : -1;
+    const warehouseKey = formData.warehouseKey || -1;
     const locationKey = -1;
     
-    const result = preallocateStocks(itemKey, detailRow.unitKey, parseNumber(newQuantity), warehouseKey, locationKey);
+    try {
+      const result = await preallocateStocks(itemKey, detailRow.unitKey, parseNumber(newQuantity), warehouseKey, locationKey);
     
-    const newAllocations = result.preallocated.map(stock => createBlankAllocationRow({
-      code: detailRow.itemCode,
-      description: detailRow.itemDescription,
-      itemKey: itemKey,
-    }));
-    
-    newAllocations.forEach((alloc, idx) => {
-      const stock = result.preallocated[idx];
-      alloc.warehouse = `Warehouse ${stock.warehouseKey}`;
-      alloc.warehouseKey = stock.warehouseKey;
-      alloc.location = `Location ${stock.locationKey}`;
-      alloc.locationKey = stock.locationKey;
-      alloc.lot = stock.lotNumber;
-      alloc.manufacturingDate = stock.manufacturingDate.toISOString().slice(0, 10);
-      alloc.expiryDate = stock.expirationDate.toISOString().slice(0, 10);
-      alloc.quantity = stock.quantity.toString();
-      alloc.unit = detailRow.unit;
-      alloc.unitKey = detailRow.unitKey;
-    });
-    
-    let newInsufficient = [...remainingInsufficient];
-    if (result.unallocatedQuantity > 0) {
-      const insufficientRow = createBlankInsufficientRow({
-        code: detailRow.itemCode,
-        description: detailRow.itemDescription,
-        itemKey: itemKey,
-      });
-      insufficientRow.quantity = result.unallocatedQuantity.toString();
-      insufficientRow.unit = detailRow.unit;
-      insufficientRow.unitKey = detailRow.unitKey;
-      newInsufficient.push(insufficientRow);
+      const newAllocations = getApiCollection(result.preallocated).map((stock) => ({
+        ...createBlankAllocationRow({
+          code: detailRow.itemCode,
+          description: detailRow.itemDescription,
+          itemKey,
+        }),
+        warehouse: stock.warehouse || stock.Warehouse || '',
+        warehouseKey: stock.warehouseID ?? stock.warehouseId ?? stock.WarehouseID ?? stock.WarehouseId ?? null,
+        location: stock.warehouseLocation || stock.WarehouseLocation || '',
+        locationKey: stock.warehouseLocationID ?? stock.warehouseLocationId ?? stock.WarehouseLocationID ?? stock.WarehouseLocationId ?? null,
+        lot: stock.lot || stock.Lot || '',
+        manufacturingDate: String(stock.manufacturingDate || stock.ManufacturingDate || '').slice(0, 10),
+        expiryDate: String(stock.expiryDate || stock.ExpiryDate || '').slice(0, 10),
+        quantity: String(stock.quantity ?? stock.Quantity ?? 0),
+        unit: stock.packagingUnit || stock.PackagingUnit || detailRow.unit,
+        unitKey: stock.packagingUnitID ?? stock.packagingUnitId ?? stock.PackagingUnitID ?? stock.PackagingUnitId ?? detailRow.unitKey,
+      }));
+      
+      let newInsufficient = [...remainingInsufficient];
+      const unallocatedQuantity = parseNumber(result.unallocatedQuantity ?? result.UnallocatedQuantity);
+      if (unallocatedQuantity > 0) {
+        const insufficientRow = createBlankInsufficientRow({
+          code: detailRow.itemCode,
+          description: detailRow.itemDescription,
+          itemKey: itemKey,
+        });
+        insufficientRow.quantity = unallocatedQuantity.toString();
+        insufficientRow.unit = detailRow.unit;
+        insufficientRow.unitKey = detailRow.unitKey;
+        newInsufficient.push(insufficientRow);
+      }
+      
+      setAllocations([...remainingAllocations, ...newAllocations]);
+      setInsufficientStocks(newInsufficient);
+      
+      const totalAllocated = [...remainingAllocations, ...newAllocations]
+        .filter(a => a.itemKey === itemKey)
+        .reduce((sum, a) => sum + parseNumber(a.quantity), 0);
+      
+      updateDetail(detailRow.id, 'withdrawableQuantity', totalAllocated.toString());
+      updateDetail(detailRow.id, 'insufficientQuantity', unallocatedQuantity.toString());
+      updateDetail(detailRow.id, 'withdrawalQuantity', totalAllocated.toString());
+    } catch (error) {
+      setMessage(error.message || 'Unable to preallocate stocks.');
     }
-    
-    setAllocations([...remainingAllocations, ...newAllocations]);
-    setInsufficientStocks(newInsufficient);
-    
-    const totalAllocated = [...remainingAllocations, ...newAllocations]
-      .filter(a => a.itemKey === itemKey)
-      .reduce((sum, a) => sum + parseNumber(a.quantity), 0);
-    
-    updateDetail(detailRow.id, 'withdrawableQuantity', totalAllocated.toString());
-    updateDetail(detailRow.id, 'insufficientQuantity', result.unallocatedQuantity.toString());
-    updateDetail(detailRow.id, 'withdrawalQuantity', totalAllocated.toString());
   };
 
   const validateEntries = () => {
     const nextErrors = {};
     let hasError = false;
     
-    if (!formData.withdrawalType) {
+    if (!formData.withdrawalTypeId) {
       nextErrors.withdrawalType = 'Withdrawal Type is required.';
       hasError = true;
     }
-    if (!formData.recipientName) {
+    if (!formData.recipientId) {
       nextErrors.recipient = 'Recipient is required.';
       hasError = true;
     }
-    if (!formData.reasonDescription) {
+    if (!formData.reasonId) {
       nextErrors.reason = 'Reason is required.';
       hasError = true;
     }
-    if (!formData.chargeToName) {
+    if (!formData.chargeToId) {
       nextErrors.chargeTo = 'Charge To is required.';
       hasError = true;
     }
-    if (!formData.company) {
+    if (!formData.companyKey) {
       nextErrors.company = 'Company is required.';
       hasError = true;
     }
@@ -387,7 +560,6 @@ export default function WithdrawalEntry() {
     if (insufficientStocks.length > 0 && insufficientStocks.some(i => parseNumber(i.quantity) > 0)) {
       setActiveTab('insufficient');
       nextErrors.insufficientStock = 'There are items with Insufficient stock';
-      hasError = true;
     }
     
     const hasQuantityError = details.some(detail => {
@@ -477,71 +649,234 @@ export default function WithdrawalEntry() {
     }
     
     if (window.confirm('Are you sure you want to approve this record?')) {
-      setIsEditing(false);
-      setFormData(prev => ({
-        ...prev,
-        approvedBy: 'Current User',
-        approvedDate: todayIso,
-      }));
-      setMessage('Record approved successfully');
+      const approve = async () => {
+        const token = getToken();
+        setIsSaving(true);
+        try {
+          const response = await fetch(buildApiUrl(`${WITHDRAWALS_ENDPOINT}/${withdrawalId}/approve`), {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+          });
+          const data = await response.json().catch(() => ({}));
+
+          if (!response.ok) {
+            throw new Error(data?.message || 'Unable to approve withdrawal.');
+          }
+
+          setIsEditing(false);
+          setFormData(prev => ({
+            ...prev,
+            approvedBy: 'Current User',
+            approvedDate: todayIso,
+          }));
+          setMessage('Record approved successfully');
+        } catch (error) {
+          setMessage(error.message || 'Unable to approve withdrawal.');
+        } finally {
+          setIsSaving(false);
+        }
+      };
+
+      approve();
     }
   };
 
   const handleRejectConfirm = ({ reason, remarks }) => {
-    setShowRejectModal(false);
-    setIsEditing(false);
-    setFormData(prev => ({
-      ...prev,
-      rejectReasonID: reason,
-      rejectDescription: remarks,
-      approvedBy: 'Current User',
-      approvedDate: todayIso,
-    }));
-    setMessage(`Record rejected. Reason: ${reason}`);
-  };
+    const reject = async () => {
+      const token = getToken();
+      setIsSaving(true);
+      try {
+        const response = await fetch(buildApiUrl(`${WITHDRAWALS_ENDPOINT}/${withdrawalId}/reject`), {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+          },
+          body: JSON.stringify({
+            rejectReasonID: Number(reason) || 1,
+            rejectDescription: remarks || reason || 'Rejected',
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
 
-  const handleSave = () => {
-    if (validateEntries()) {
-      if (withdrawalId === -1) {
-        const newTransNo = `SW-${Date.now()}`;
-        setFormData(prev => ({ 
-          ...prev, 
-          transactionNo: newTransNo,
-          lastModifiedBy: 'Current User',
-          lastModifiedDate: todayIso,
-        }));
-        setWithdrawalId(Date.now());
-      } else {
-        if (formData.lastModifiedBy && formData.lastModifiedDate) {
-          addModificationHistory(formData.lastModifiedBy, formData.lastModifiedDate);
+        if (!response.ok) {
+          throw new Error(data?.message || 'Unable to reject withdrawal.');
         }
+
+        setShowRejectModal(false);
+        setIsEditing(false);
         setFormData(prev => ({
           ...prev,
-          lastModifiedBy: 'Current User',
-          lastModifiedDate: todayIso,
+          rejectReasonID: reason,
+          rejectDescription: remarks,
+          approvedBy: 'Current User',
+          approvedDate: todayIso,
         }));
+        setMessage(`Record rejected. Reason: ${reason}`);
+      } catch (error) {
+        setMessage(error.message || 'Unable to reject withdrawal.');
+      } finally {
+        setIsSaving(false);
       }
+    };
+
+    reject();
+  };
+
+  const buildSavePayload = () => {
+    const detailRows = [
+      ...allocations.map((row) => ({
+        itemID: toNumberOrDefault(row.itemKey),
+        packagingUnitID: toNumberOrDefault(row.unitKey),
+        quantity: parseNumber(row.quantity),
+        warehouseID: toNumberOrDefault(row.warehouseKey),
+        warehouseLocationID: toNumberOrDefault(row.locationKey),
+        lot: row.lot || '',
+        expiryDate: toApiDate(row.expiryDate),
+        manufacturingDate: toApiDate(row.manufacturingDate),
+        remarks: details.find((detail) => detail.itemKey === row.itemKey)?.remarks || '',
+        detailType: 0,
+        referenceID: -1,
+        status: false,
+      })),
+      ...insufficientStocks.map((row) => ({
+        itemID: toNumberOrDefault(row.itemKey),
+        packagingUnitID: toNumberOrDefault(row.unitKey),
+        quantity: parseNumber(row.quantity),
+        warehouseID: -1,
+        warehouseLocationID: -1,
+        lot: '',
+        expiryDate: '1900-01-01',
+        manufacturingDate: '1900-01-01',
+        remarks: details.find((detail) => detail.itemKey === row.itemKey)?.remarks || '',
+        detailType: 1,
+        referenceID: -1,
+        status: false,
+      })),
+    ].filter((row) => row.itemID > 0 && row.packagingUnitID > 0 && row.quantity > 0);
+
+    return {
+      stockWithdrawalID: withdrawalId,
+      transactionNumber: formData.transactionNo,
+      transactionDate: toApiDate(formData.transactionDate),
+      withdrawalType: toNumberOrDefault(formData.withdrawalTypeId, 0),
+      recipientID: toNumberOrDefault(formData.recipientId, 0),
+      reasonID: toNumberOrDefault(formData.reasonId, 0),
+      remarks: formData.remarks,
+      status: 0,
+      referenceID: -1,
+      referenceType: 0,
+      referenceNo: formData.referenceNo,
+      deliveryInstructions: formData.deliveryInstructions,
+      podNumber: formData.podNo,
+      confirmationStatus: false,
+      confirmationDate: '1900-01-01',
+      isDRPrinted: false,
+      isPrinted: false,
+      dateNeeded: toApiDate(formData.targetDelivery),
+      declareValue: parseNumber(formData.declareValue),
+      isDownloaded: false,
+      chargeTo: toNumberOrDefault(formData.chargeToId, 0),
+      companyID: toNumberOrDefault(formData.companyKey, 0),
+      noOfPallets: parseNumber(formData.noOfPallets),
+      deliveryStatus: formData.deliveryStatus || 0,
+      details: detailRows,
+    };
+  };
+
+  const handleSave = async () => {
+    if (!validateEntries()) {
+      return;
+    }
+
+    const token = getToken();
+    const payload = buildSavePayload();
+    setIsSaving(true);
+    setMessage('');
+
+    try {
+      const endpoint = withdrawalId === -1
+        ? WITHDRAWALS_ENDPOINT
+        : `${WITHDRAWALS_ENDPOINT}/${withdrawalId}`;
+      const response = await fetch(buildApiUrl(endpoint), {
+        method: withdrawalId === -1 ? 'POST' : 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data?.message || 'Unable to save withdrawal.');
+      }
+
+      const savedId = data.stockWithdrawalId ?? data.StockWithdrawalId ?? data.stockWithdrawalID ?? data.StockWithdrawalID;
+      if (savedId) {
+        setWithdrawalId(savedId);
+      }
+
+      if (withdrawalId !== -1 && formData.lastModifiedBy && formData.lastModifiedDate) {
+        addModificationHistory(formData.lastModifiedBy, formData.lastModifiedDate);
+      }
+
+      setFormData(prev => ({
+        ...prev,
+        transactionNo: prev.transactionNo || data.transactionNumber || data.TransactionNumber || prev.transactionNo,
+        lastModifiedBy: 'Current User',
+        lastModifiedDate: todayIso,
+      }));
       setIsEditing(false);
       setMessage('Record saved successfully');
+    } catch (error) {
+      setMessage(error.message || 'Unable to save withdrawal.');
+    } finally {
+      setIsSaving(false);
     }
   };
 
-  const handleLookupSelect = (row) => {
+  const loadRecipientAddress = async (recipient) => {
+    const token = getToken();
+    const recipientCode = recipient?.code || recipient?.Code || '';
+    const recipientId = String(recipient?.id || recipient?.Id || '');
+    const query = new URLSearchParams({ query: recipientCode });
+    const response = await fetch(buildApiUrl(`${WITHDRAWALS_ENDPOINT}/recipients?${query.toString()}`), {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      return '';
+    }
+
+    const match = getApiCollection(data).find((item) => (
+      String(getField(item, ['id', 'Id'])) === recipientId
+      || getField(item, ['code', 'Code']).toLowerCase() === String(recipientCode || '').toLowerCase()
+    )) || getApiCollection(data)[0];
+
+    return getField(match, ['address', 'Address', 'addressString', 'AddressString']);
+  };
+
+  const handleLookupSelect = async (row) => {
     if (lookup === 'recipient') {
+      const selectedAddress = row.address || row.Address || row.addressString || row.AddressString || '';
+      const resolvedAddress = await loadRecipientAddress(row) || selectedAddress;
       setFormData((current) => ({ 
         ...current, 
+        recipientId: row.id,
         recipientCode: row.code, 
         recipientName: row.description, 
-        address: row.address || '',
+        address: resolvedAddress,
       }));
       setErrors((current) => ({ ...current, recipient: '' }));
     }
     if (lookup === 'reason') {
-      setFormData((current) => ({ ...current, reasonCode: row.code, reasonDescription: row.description }));
+      setFormData((current) => ({ ...current, reasonId: row.id, reasonCode: row.code, reasonDescription: row.description }));
       setErrors((current) => ({ ...current, reason: '' }));
     }
     if (lookup === 'warehouse') {
-      setFormData((current) => ({ ...current, warehouse: row.description, warehouseKey: row.code }));
+      setFormData((current) => ({ ...current, warehouse: row.description, warehouseKey: row.id }));
       details.forEach(detail => {
         if (detail.itemKey) {
           processQuantityChange(detail.itemKey, detail.quantity);
@@ -549,20 +884,20 @@ export default function WithdrawalEntry() {
       });
     }
     if (lookup === 'chargeTo') {
-      setFormData((current) => ({ ...current, chargeToCode: row.code, chargeToName: row.description }));
+      setFormData((current) => ({ ...current, chargeToId: row.id, chargeToCode: row.code, chargeToName: row.description }));
       setErrors((current) => ({ ...current, chargeTo: '' }));
     }
     if (lookup === 'company') {
-      setFormData((current) => ({ ...current, company: row.description, companyKey: row.code }));
+      setFormData((current) => ({ ...current, company: row.description, companyKey: row.id }));
       setErrors((current) => ({ ...current, company: '' }));
     }
     if (lookup === 'item' && pendingItemLookupRow) {
       updateDetail(pendingItemLookupRow.id, 'itemCode', row.code);
       updateDetail(pendingItemLookupRow.id, 'itemDescription', row.description);
       updateDetail(pendingItemLookupRow.id, 'unit', row.unit);
-      updateDetail(pendingItemLookupRow.id, 'itemKey', row.code);
-      updateDetail(pendingItemLookupRow.id, 'unitKey', row.unit === 'BOX' ? 1 : 2);
-      processQuantityChange(row.code, 0);
+      updateDetail(pendingItemLookupRow.id, 'itemKey', row.id);
+      updateDetail(pendingItemLookupRow.id, 'unitKey', row.unitId);
+      processQuantityChange(row.id, 0);
       setPendingItemLookupRow(null);
     }
     setLookup(null);
@@ -571,14 +906,15 @@ export default function WithdrawalEntry() {
   const handleItemLookupClick = (row) => {
     if (!isEditing) return;
     setPendingItemLookupRow(row);
-    setLookup('item');
+    openLookup('item');
   };
 
   const deleteSelectedDetails = () => {
     if (window.confirm('Are you sure you want to remove the selected items?')) {
       const selectedIds = details.filter(row => row.selected).map(row => row.id);
-      const remainingAllocations = allocations.filter(a => !selectedIds.includes(a.id));
-      const remainingInsufficient = insufficientStocks.filter(i => !selectedIds.includes(i.id));
+      const selectedItemKeys = details.filter(row => row.selected).map(row => row.itemKey);
+      const remainingAllocations = allocations.filter(a => !selectedItemKeys.includes(a.itemKey));
+      const remainingInsufficient = insufficientStocks.filter(i => !selectedItemKeys.includes(i.itemKey));
       
       setAllocations(remainingAllocations);
       setInsufficientStocks(remainingInsufficient);
@@ -589,6 +925,7 @@ export default function WithdrawalEntry() {
   };
 
   const actionDisabled = (action) => {
+    if (isSaving) return true;
     if (action === 'Edit') return isEditing;
     if (action === 'Save') return !isEditing;
     if (action === 'Approve') return isEditing || withdrawalId === -1;
@@ -662,10 +999,23 @@ export default function WithdrawalEntry() {
                 <input type="date" value={formData.transactionDate} onChange={(event) => updateForm('transactionDate', event.target.value)} disabled={!isEditing} />
               </Field>
               <Field label="Type" className="is-wide" error={errors.withdrawalType}>
-                <select value={formData.withdrawalType} onChange={(event) => updateForm('withdrawalType', event.target.value)} disabled={!isEditing}>
+                <select
+                  value={formData.withdrawalTypeId}
+                  onChange={(event) => {
+                    const selectedType = withdrawalTypeRows.find((row) => String(row.id) === event.target.value);
+                    setFormData((current) => ({
+                      ...current,
+                      withdrawalTypeId: event.target.value,
+                      withdrawalType: selectedType?.description || '',
+                    }));
+                    setErrors((current) => ({ ...current, withdrawalType: '' }));
+                  }}
+                  disabled={!isEditing}
+                >
                   <option value="" />
-                  <option>Warehouse Withdrawal</option>
-                  <option>Charge Withdrawal</option>
+                  {withdrawalTypeRows.map((row) => (
+                    <option key={row.id} value={row.id}>{row.description}</option>
+                  ))}
                 </select>
               </Field>
               <Field
@@ -673,7 +1023,7 @@ export default function WithdrawalEntry() {
                 link
                 className="is-wide"
                 error={errors.recipient}
-                onLabelClick={() => isEditing && setLookup('recipient')}
+                onLabelClick={() => isEditing && openLookup('recipient')}
               >
                 <div className="etr-withdrawal-split-input">
                   <input type="text" value={formData.recipientCode} readOnly />
@@ -688,7 +1038,7 @@ export default function WithdrawalEntry() {
                 link
                 className="is-wide"
                 error={errors.reason}
-                onLabelClick={() => isEditing && setLookup('reason')}
+                onLabelClick={() => isEditing && openLookup('reason')}
               >
                 <div className="etr-withdrawal-split-input">
                   <input type="text" value={formData.reasonCode} readOnly />
@@ -702,7 +1052,7 @@ export default function WithdrawalEntry() {
                 label="Warehouse"
                 link
                 className="is-wide"
-                onLabelClick={() => isEditing && setLookup('warehouse')}
+                onLabelClick={() => isEditing && openLookup('warehouse')}
               >
                 <input type="text" value={formData.warehouse} readOnly />
               </Field>
@@ -711,7 +1061,7 @@ export default function WithdrawalEntry() {
                 link
                 className="is-wide"
                 error={errors.chargeTo}
-                onLabelClick={() => isEditing && setLookup('chargeTo')}
+                onLabelClick={() => isEditing && openLookup('chargeTo')}
               >
                 <div className="etr-withdrawal-split-input">
                   <input type="text" value={formData.chargeToCode} readOnly />
@@ -723,7 +1073,7 @@ export default function WithdrawalEntry() {
                 link
                 className="is-wide"
                 error={errors.company}
-                onLabelClick={() => isEditing && setLookup('company')}
+                onLabelClick={() => isEditing && openLookup('company')}
               >
                 <input type="text" value={formData.company} readOnly />
               </Field>
@@ -767,10 +1117,28 @@ export default function WithdrawalEntry() {
                 </Field>
                 <button 
                   type="button" 
-                  disabled={!isEditing || withdrawalId === -1} 
-                  onClick={() => {
-                    const newPodNo = `POD-${Date.now().toString().slice(-6)}`;
-                    updateForm('podNo', newPodNo);
+                  disabled={!isEditing || withdrawalId === -1 || isSaving} 
+                  onClick={async () => {
+                    const token = getToken();
+                    setIsSaving(true);
+                    try {
+                      const response = await fetch(buildApiUrl(`${WITHDRAWALS_ENDPOINT}/${withdrawalId}/pod`), {
+                        method: 'POST',
+                        headers: token ? { Authorization: `Bearer ${token}` } : {},
+                      });
+                      const data = await response.json().catch(() => ({}));
+
+                      if (!response.ok) {
+                        throw new Error(data?.message || 'Unable to generate POD.');
+                      }
+
+                      updateForm('podNo', data.podNumber || data.PODNumber || '');
+                      setMessage('POD number generated successfully.');
+                    } catch (error) {
+                      setMessage(error.message || 'Unable to generate POD.');
+                    } finally {
+                      setIsSaving(false);
+                    }
                   }}
                 >
                   Generate POD
@@ -1004,8 +1372,10 @@ export default function WithdrawalEntry() {
 
       {lookup && (
         <LookupModal
-          type={lookup}
           title={`Select ${lookup.replace(/([A-Z])/g, ' $1')}`}
+          rows={lookupRows[lookup] || []}
+          isLoading={isLookupLoading}
+          error={lookupError}
           onClose={() => {
             setLookup(null);
             setPendingItemLookupRow(null);

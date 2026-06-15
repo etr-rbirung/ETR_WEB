@@ -159,9 +159,22 @@ function Field({ label, children, link = false, className = '', error = '', onLa
   );
 }
 
-function LookupModal({ title, rows, isLoading = false, error = '', onClose, onSelect }) {
+function LookupModal({ title, rows, isLoading = false, error = '', onClose, onSearch, onSelect }) {
   const [query, setQuery] = useState('');
-  const filteredRows = rows.filter((row) => `${row.code} ${row.description}`.toLowerCase().includes(query.trim().toLowerCase()));
+  const normalizedQuery = query.trim().toLowerCase();
+  const filteredRows = rows.filter((row) => `${row.code} ${row.description}`.toLowerCase().includes(normalizedQuery));
+
+  useEffect(() => {
+    if (!onSearch) {
+      return undefined;
+    }
+
+    const timeoutId = setTimeout(() => {
+      onSearch(query.trim());
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [query]);
 
   return (
     <div className="etr-withdrawal-modal-backdrop" role="presentation">
@@ -250,6 +263,7 @@ export default function WithdrawalEntry() {
     withdrawalQuantity: allocations.reduce((sum, row) => sum + parseNumber(row.quantity), 0),
     insufficientQuantity: insufficientStocks.reduce((sum, row) => sum + parseNumber(row.quantity), 0),
   }), [details, allocations, insufficientStocks]);
+  const hasSelectedDetails = details.some((row) => row.selected);
 
   const getCreatedInfo = () => {
     if (formData.createdBy && formData.createdDate) {
@@ -375,7 +389,7 @@ export default function WithdrawalEntry() {
     return () => controller.abort();
   }, []);
 
-  const loadLookupRows = async (type) => {
+  const loadLookupRows = async (type, searchQuery = '') => {
     if (!['recipient', 'reason', 'item'].includes(type)) {
       return;
     }
@@ -390,7 +404,8 @@ export default function WithdrawalEntry() {
         : type === 'recipient'
           ? `${WITHDRAWALS_ENDPOINT}/recipients`
         : `${WITHDRAWALS_ENDPOINT}/items`;
-      const response = await fetch(buildApiUrl(endpoint), {
+      const queryString = searchQuery ? `?${new URLSearchParams({ query: searchQuery }).toString()}` : '';
+      const response = await fetch(buildApiUrl(`${endpoint}${queryString}`), {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       const data = await response.json().catch(() => ({}));
@@ -910,6 +925,10 @@ export default function WithdrawalEntry() {
   };
 
   const deleteSelectedDetails = () => {
+    if (!hasSelectedDetails) {
+      return;
+    }
+
     if (window.confirm('Are you sure you want to remove the selected items?')) {
       const selectedIds = details.filter(row => row.selected).map(row => row.id);
       const selectedItemKeys = details.filter(row => row.selected).map(row => row.itemKey);
@@ -1170,7 +1189,7 @@ export default function WithdrawalEntry() {
         </div>
 
         <div className="etr-withdrawal-table-tools">
-          <button type="button" onClick={deleteSelectedDetails} disabled={!isEditing}>
+          <button type="button" onClick={deleteSelectedDetails} disabled={!isEditing || !hasSelectedDetails}>
             Delete Selected
           </button>
           <span>Total Qty: {totals.quantity.toFixed(2)}</span>
@@ -1376,6 +1395,7 @@ export default function WithdrawalEntry() {
           rows={lookupRows[lookup] || []}
           isLoading={isLookupLoading}
           error={lookupError}
+          onSearch={(searchQuery) => loadLookupRows(lookup, searchQuery)}
           onClose={() => {
             setLookup(null);
             setPendingItemLookupRow(null);

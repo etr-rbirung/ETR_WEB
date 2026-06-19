@@ -37,10 +37,7 @@ function formatMoney(value) {
 }
 
 function formatShortDate(value) {
-  if (!value) {
-    return '';
-  }
-
+  if (!value) return '';
   const [year, month, day] = value.split('-');
   return `${Number(month)}/${Number(day)}/${year}`;
 }
@@ -63,23 +60,25 @@ function ToolbarIcon({ type }) {
   };
 
   return (
-    <span className={`etr-po-toolbar-icon icon-${type}`} aria-hidden="true">
+    <span className="etr-po-icon" aria-hidden="true">
       <svg viewBox="0 0 24 24">{paths[type]}</svg>
     </span>
   );
 }
 
-function Field({ label, link = false, children, className = '' }) {
+function Field({ label, link = false, children, className = '', error = '' }) {
   return (
-    <label className={`etr-po-field ${className}`}>
-      <span className={link ? 'is-link-label' : ''}>{label}</span>
-      {children}
+    <label className={`etr-po-field ${className} ${error ? 'has-error' : ''}`}>
+      <button type="button" className={link ? 'is-link-label' : ''} tabIndex={-1}>
+        {label}
+      </button>
+      {children || <input type="text" />}
+      {error ? <small>{error}</small> : null}
     </label>
   );
 }
 
 export default function PurchaseOrder() {
-  const [activeTab, setActiveTab] = useState('general');
   const [rows, setRows] = useState(purchaseItems);
   const [formData, setFormData] = useState({
     poNumber: '',
@@ -104,7 +103,6 @@ export default function PurchaseOrder() {
 
   const totals = useMemo(() => {
     const grossTotal = rows.reduce((sum, row) => sum + (Number(row.quantity) * Number(row.purchaseCost)), 0);
-
     return {
       grossTotal,
       grossDiscount: 0,
@@ -119,9 +117,9 @@ export default function PurchaseOrder() {
   };
 
   const updateRow = (rowId, field, value) => {
-    setRows((currentRows) => currentRows.map((row) => (
+    setRows((currentRows) => currentRows.map((row) =>
       row.id === rowId ? { ...row, [field]: value } : row
-    )));
+    ));
   };
 
   const deleteSelectedRows = () => {
@@ -132,128 +130,130 @@ export default function PurchaseOrder() {
   };
 
   return (
-    <div className="etr-po-window">
-      <header className="etr-po-titlebar">
-        <h1>Purchase Order</h1>
-      </header>
-
-      <nav className="etr-po-toolbar" aria-label="Purchase order actions">
-        {toolbarActions.map((action) => (
-          <button type="button" key={action.id} disabled={action.disabled}>
-            <ToolbarIcon type={action.icon} />
-            <span>{action.label}</span>
-            {action.hasMenu ? <span className="etr-po-caret" aria-hidden="true" /> : null}
-          </button>
-        ))}
-      </nav>
-
-      <section className="etr-po-card">
-        <div className="etr-po-tabs" role="tablist" aria-label="Purchase order sections">
-          <button type="button" className={activeTab === 'general' ? 'is-active' : ''} onClick={() => setActiveTab('general')}>
-            General
-          </button>
-          <button type="button" className={activeTab === 'properties' ? 'is-active' : ''} onClick={() => setActiveTab('properties')}>
-            Properties Document
-          </button>
+    <div className="etr-po-entry">
+      {/* Toolbar – matches withdrawal’s header layout */}
+      <div className="etr-po-toolbar">
+        <div>
+          <p className="etr-po-kicker">Purchasing</p>
+          <h1>Purchase Order</h1>
+          <span>Create and manage purchase orders.</span>
         </div>
+        <div className="etr-po-actions">
+          {toolbarActions.map((action) => (
+            <button
+              type="button"
+              key={action.id}
+              disabled={action.disabled}
+              className={action.id === 'save' ? 'is-primary' : ''}
+            >
+              <ToolbarIcon type={action.icon} />
+              <span>{action.label}</span>
+              {action.hasMenu ? <span className="etr-po-caret" aria-hidden="true" /> : null}
+            </button>
+          ))}
+        </div>
+      </div>
 
-        <div className="etr-po-form-area">
-          {activeTab === 'general' ? (
-            <div className="etr-po-general-grid">
-              <div className="etr-po-main-fields">
-                <Field label="PO Number :">
-                  <input value={formData.poNumber} onChange={(event) => updateForm('poNumber', event.target.value)} />
-                </Field>
-
-                <Field label="Purchase Date :">
-                  <input type="date" value={formData.purchaseDate} onChange={(event) => updateForm('purchaseDate', event.target.value)} />
-                </Field>
-
-                <Field label="Vendor (Supplier):" link className="is-wide">
-                  <div className="etr-po-split-input">
-                    <input value={formData.vendorCode} onChange={(event) => updateForm('vendorCode', event.target.value)} />
-                    <input value={formData.vendorName} onChange={(event) => updateForm('vendorName', event.target.value)} />
-                  </div>
-                </Field>
-
-                <Field label="Vendor Address :" className="is-wide">
-                  <input value={formData.vendorAddress} onChange={(event) => updateForm('vendorAddress', event.target.value)} />
-                </Field>
-
-                <Field label="Currency :">
-                  <select value={formData.currency} onChange={(event) => updateForm('currency', event.target.value)}>
-                    <option>PHP - Philippine Peso</option>
-                    <option>USD - US Dollar</option>
-                  </select>
-                </Field>
-
-                <Field label="Terms :">
-                  <select value={formData.terms} onChange={(event) => updateForm('terms', event.target.value)}>
-                    <option>30 DAYS</option>
-                    <option>15 DAYS</option>
-                    <option>COD</option>
-                  </select>
-                </Field>
-
-                <Field label="Company :" link className="is-wide">
-                  <input value={formData.company} onChange={(event) => updateForm('company', event.target.value)} />
-                </Field>
-
-                <Field label="Comments :" className="is-wide">
-                  <input value={formData.comments} onChange={(event) => updateForm('comments', event.target.value)} />
-                </Field>
-
-                <Field label="Delivery Address:" link className="is-wide">
-                  <textarea rows="4" value={formData.deliveryAddress} onChange={(event) => updateForm('deliveryAddress', event.target.value)} />
-                </Field>
+      {/* Form panel */}
+      <section className="etr-po-form-panel">
+        <div className="etr-po-form-section">
+          <div className="etr-po-grid dense">
+            {/* Left column – General */}
+            <div className="etr-po-grid-column">
+              <div className="etr-po-card-head">
+                <div>
+                  <p>General</p>
+                  <h2>Transaction Info</h2>
+                </div>
               </div>
-
-              <div className="etr-po-side-fields">
-                <Field label="Reference Type :">
-                  <select value={formData.referenceType} onChange={(event) => updateForm('referenceType', event.target.value)}>
-                    <option value="" />
-                    <option>Purchase Request</option>
-                    <option>Sales Order</option>
-                    <option>Manual Entry</option>
-                  </select>
-                </Field>
-
-                <Field label="Reference No. :" link>
-                  <input value={formData.referenceNo} onChange={(event) => updateForm('referenceNo', event.target.value)} />
-                </Field>
-
-                <Field label="Delivery Date :">
-                  <input type="date" value={formData.deliveryDate} onChange={(event) => updateForm('deliveryDate', event.target.value)} />
-                </Field>
-              </div>
-            </div>
-          ) : (
-            <div className="etr-po-properties-grid">
-              <Field label="Created By :">
-                <input value={formData.createdBy} onChange={(event) => updateForm('createdBy', event.target.value)} />
+              <Field label="PO Number">
+                <input value={formData.poNumber} onChange={(e) => updateForm('poNumber', e.target.value)} />
               </Field>
-              <Field label="Modified By :">
-                <input value={formData.modifiedBy} onChange={(event) => updateForm('modifiedBy', event.target.value)} />
+              <Field label="Purchase Date">
+                <input type="date" value={formData.purchaseDate} onChange={(e) => updateForm('purchaseDate', e.target.value)} />
               </Field>
-              <Field label="Approved By :">
-                <input value={formData.approvedBy} onChange={(event) => updateForm('approvedBy', event.target.value)} />
+              <Field label="Vendor (Supplier)" link className="is-wide">
+                <div className="etr-po-split-input">
+                  <input value={formData.vendorCode} onChange={(e) => updateForm('vendorCode', e.target.value)} />
+                  <input value={formData.vendorName} onChange={(e) => updateForm('vendorName', e.target.value)} />
+                </div>
               </Field>
-              <Field label="Cancelled By :">
-                <input value={formData.cancelledBy} onChange={(event) => updateForm('cancelledBy', event.target.value)} />
+              <Field label="Vendor Address" className="is-wide">
+                <input value={formData.vendorAddress} onChange={(e) => updateForm('vendorAddress', e.target.value)} />
               </Field>
-              <Field label="Cancel Remarks :" className="is-remarks">
-                <textarea rows="4" value={formData.cancelRemarks} onChange={(event) => updateForm('cancelRemarks', event.target.value)} />
+              <Field label="Currency">
+                <select value={formData.currency} onChange={(e) => updateForm('currency', e.target.value)}>
+                  <option>PHP - Philippine Peso</option>
+                  <option>USD - US Dollar</option>
+                </select>
+              </Field>
+              <Field label="Terms">
+                <select value={formData.terms} onChange={(e) => updateForm('terms', e.target.value)}>
+                  <option>30 DAYS</option>
+                  <option>15 DAYS</option>
+                  <option>COD</option>
+                </select>
+              </Field>
+              <Field label="Company" link className="is-wide">
+                <input value={formData.company} onChange={(e) => updateForm('company', e.target.value)} />
+              </Field>
+              <Field label="Comments" className="is-wide">
+                <input value={formData.comments} onChange={(e) => updateForm('comments', e.target.value)} />
+              </Field>
+              <Field label="Delivery Address" link className="is-wide">
+                <textarea rows="4" value={formData.deliveryAddress} onChange={(e) => updateForm('deliveryAddress', e.target.value)} />
               </Field>
             </div>
-          )}
+
+            {/* Right column – Additional Info / Properties */}
+            <div className="etr-po-grid-column">
+              <div className="etr-po-card-head">
+                <div>
+                  <p>Properties</p>
+                  <h2>Additional Information</h2>
+                </div>
+              </div>
+              <Field label="Reference Type">
+                <select value={formData.referenceType} onChange={(e) => updateForm('referenceType', e.target.value)}>
+                  <option value="" />
+                  <option>Purchase Request</option>
+                  <option>Sales Order</option>
+                  <option>Manual Entry</option>
+                </select>
+              </Field>
+              <Field label="Reference No." link>
+                <input value={formData.referenceNo} onChange={(e) => updateForm('referenceNo', e.target.value)} />
+              </Field>
+              <Field label="Delivery Date">
+                <input type="date" value={formData.deliveryDate} onChange={(e) => updateForm('deliveryDate', e.target.value)} />
+              </Field>
+              <Field label="Created By">
+                <input value={formData.createdBy} onChange={(e) => updateForm('createdBy', e.target.value)} />
+              </Field>
+              <Field label="Modified By">
+                <input value={formData.modifiedBy} onChange={(e) => updateForm('modifiedBy', e.target.value)} />
+              </Field>
+              <Field label="Approved By">
+                <input value={formData.approvedBy} onChange={(e) => updateForm('approvedBy', e.target.value)} />
+              </Field>
+              <Field label="Cancelled By">
+                <input value={formData.cancelledBy} onChange={(e) => updateForm('cancelledBy', e.target.value)} />
+              </Field>
+              <Field label="Cancel Remarks" className="is-remarks is-wide">
+                <textarea rows="4" value={formData.cancelRemarks} onChange={(e) => updateForm('cancelRemarks', e.target.value)} />
+              </Field>
+            </div>
+          </div>
         </div>
       </section>
 
-      <section className="etr-po-lines-panel">
-        <div className="etr-po-delete-strip">
+      {/* Lines panel – matches withdrawal’s table panel */}
+      <section className="etr-po-table-panel">
+        <div className="etr-po-table-tools">
           <button type="button" onClick={deleteSelectedRows} disabled={!rows.some((row) => row.selected)}>
             Delete Selected
           </button>
+          <span>Total Items: {rows.length}</span>
         </div>
 
         <div className="etr-po-table-wrap">
@@ -274,27 +274,26 @@ export default function PurchaseOrder() {
             <tbody>
               {rows.map((row) => {
                 const amount = Number(row.quantity) * Number(row.purchaseCost);
-
                 return (
                   <tr key={row.id}>
                     <td>
-                      <input type="checkbox" checked={row.selected} onChange={(event) => updateRow(row.id, 'selected', event.target.checked)} />
+                      <input type="checkbox" checked={row.selected} onChange={(e) => updateRow(row.id, 'selected', e.target.checked)} />
                     </td>
                     <td>{row.itemCode}</td>
                     <td>{row.itemDescription}</td>
                     <td>
-                      <input type="checkbox" checked={row.free} onChange={(event) => updateRow(row.id, 'free', event.target.checked)} />
+                      <input type="checkbox" checked={row.free} onChange={(e) => updateRow(row.id, 'free', e.target.checked)} />
                     </td>
                     <td>{row.unit}</td>
                     <td>
-                      <input type="number" value={row.quantity} onChange={(event) => updateRow(row.id, 'quantity', event.target.value)} />
+                      <input type="number" value={row.quantity} onChange={(e) => updateRow(row.id, 'quantity', e.target.value)} />
                     </td>
                     <td>
-                      <input type="number" step="0.0001" value={formatMoney(row.purchaseCost)} onChange={(event) => updateRow(row.id, 'purchaseCost', event.target.value)} />
+                      <input type="number" step="0.0001" value={formatMoney(row.purchaseCost)} onChange={(e) => updateRow(row.id, 'purchaseCost', e.target.value)} />
                     </td>
                     <td className="is-money">{formatMoney(amount)}</td>
                     <td>
-                      <input value={row.comments} onChange={(event) => updateRow(row.id, 'comments', event.target.value)} />
+                      <input value={row.comments} onChange={(e) => updateRow(row.id, 'comments', e.target.value)} />
                     </td>
                   </tr>
                 );
@@ -303,36 +302,36 @@ export default function PurchaseOrder() {
           </table>
         </div>
 
+        {/* Totals – styled as a footer inside the same card */}
         <div className="etr-po-totals">
           <div className="etr-po-total-column">
             <label>
-              <span>Gross Total :</span>
+              <span>Gross Total</span>
               <input value={formatMoney(totals.grossTotal)} readOnly />
             </label>
             <label>
               <input type="checkbox" />
-              <span>Discount (%) :</span>
+              <span>Discount (%)</span>
               <input readOnly />
             </label>
             <label>
-              <span>Gross Discount :</span>
+              <span>Gross Discount</span>
               <input value={formatMoney(totals.grossDiscount)} readOnly />
             </label>
           </div>
-
           <div className="etr-po-total-column">
             <label>
               <input type="checkbox" />
-              <span>Withholding Tax:</span>
+              <span>Withholding Tax</span>
               <input readOnly />
               <input value="0.00" readOnly />
             </label>
             <label>
-              <span>Vat Amount :</span>
+              <span>Vat Amount</span>
               <input value={totals.vatAmount ? formatMoney(totals.vatAmount) : ''} readOnly />
             </label>
             <label>
-              <span>Net Total :</span>
+              <span>Net Total</span>
               <input value={formatMoney(totals.netTotal)} readOnly />
             </label>
           </div>

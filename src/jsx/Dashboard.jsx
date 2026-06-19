@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import DailyExpenseManager from './Dailyexpensemanager.jsx';
 import ExpenseEntryView from './Dailyexpense.jsx';
 import JournalEntryView, { JournalEntryManagerView } from './Journalentry.jsx';
+import PurchaseOrder from './PurchaseOrder.jsx';
 import WithdrawalEntry from './WithdrawalEntry.jsx';
 
 const DAILY_EXPENSE_ENTRY_DESCRIPTION = '{4DAE27D1-29DC-418F-AF97-CBCD368CF592}';
@@ -595,6 +596,10 @@ function DashboardContent({ activeItemId, user, selectedExpense, onNavigate, onO
 
   if (activeItemId === 'withdrawal-entry') {
     return <WithdrawalEntry />;
+  }
+
+  if (activeItemId === 'purchase-order') {
+    return <PurchaseOrder />;
   }
 
   return (

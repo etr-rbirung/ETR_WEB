@@ -595,7 +595,7 @@ function DashboardContent({ activeItemId, user, selectedExpense, onNavigate, onO
   }
 
   if (activeItemId === 'withdrawal-entry') {
-    return <WithdrawalEntry />;
+    return <WithdrawalEntry user={user} />;
   }
 
   if (activeItemId === 'purchase-order') {

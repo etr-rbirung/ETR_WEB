@@ -524,6 +524,37 @@
   border-color: #165ea4;
 }
 
+.etr-withdrawal-print-modal {
+  max-width: 520px;
+}
+
+.etr-withdrawal-print-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.etr-withdrawal-print-options button {
+  min-height: 54px;
+  border: 1px solid rgba(27, 90, 150, 0.18);
+  border-radius: 8px;
+  background: #f8fbfe;
+  color: #123a5f;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 800;
+  text-align: left;
+  padding: 0 14px;
+}
+
+.etr-withdrawal-print-options button:hover,
+.etr-withdrawal-print-options button:focus {
+  border-color: #86b9e6;
+  background: #eef7ff;
+  outline: none;
+}
+
 .etr-withdrawal-lookup-list {
   display: grid;
   gap: 8px;
@@ -600,5 +631,149 @@
   .etr-withdrawal-table td button {
     padding: 2px 6px;
     font-size: 0.65rem;
+  }
+}
+
+.etr-withdrawal-reference-modal {
+  width: min(960px, 96vw);
+}
+
+.etr-withdrawal-reference-table-wrap {
+  margin-top: 12px;
+  max-height: 420px;
+  overflow: auto;
+}
+
+.etr-withdrawal-reference-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.etr-withdrawal-reference-table th,
+.etr-withdrawal-reference-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid #d8dee8;
+  text-align: left;
+  vertical-align: top;
+}
+
+.etr-withdrawal-reference-table th {
+  position: sticky;
+  top: 0;
+  background: #f5f7fb;
+  z-index: 1;
+}
+
+.etr-withdrawal-reference-table tr.is-clickable {
+  cursor: pointer;
+}
+
+.etr-withdrawal-reference-table tr.is-clickable:hover {
+  background: #eef4ff;
+}
+
+.etr-withdrawal-stock-qty-button {
+  width: 100%;
+  min-height: 32px;
+  border: 1px solid rgba(27, 90, 150, 0.18);
+  border-radius: 7px;
+  background: #ffffff;
+  color: #0d3e69;
+  cursor: pointer;
+  font: inherit;
+  font-weight: 700;
+  text-align: right;
+  padding: 0 10px;
+}
+
+.etr-withdrawal-stock-qty-button:hover,
+.etr-withdrawal-stock-qty-button:focus {
+  border-color: #1b5a96;
+  box-shadow: 0 0 0 3px rgba(27, 90, 150, 0.12);
+  outline: none;
+}
+
+.etr-withdrawal-stock-modal {
+  width: min(980px, 96vw);
+}
+
+.etr-withdrawal-stock-filters {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px 14px;
+}
+
+.etr-withdrawal-stock-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding-top: 2px;
+}
+
+.etr-withdrawal-stock-toolbar button {
+  min-height: 32px;
+  border: 1px solid rgba(27, 90, 150, 0.18);
+  border-radius: 7px;
+  background: #ffffff;
+  color: #174b7f;
+  cursor: pointer;
+  font-weight: 800;
+  padding: 0 12px;
+}
+
+.etr-withdrawal-stock-toolbar button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.etr-withdrawal-stock-table-wrap {
+  min-height: 220px;
+  max-height: 360px;
+  overflow: auto;
+  border: 1px solid rgba(20, 62, 109, 0.14);
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.etr-withdrawal-stock-table {
+  width: 100%;
+  min-width: 760px;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+}
+
+.etr-withdrawal-stock-table th,
+.etr-withdrawal-stock-table td {
+  border-bottom: 1px solid #d8dee8;
+  padding: 8px 10px;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.etr-withdrawal-stock-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #eef6fd;
+  color: #082f53;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.etr-withdrawal-stock-table tbody tr:hover {
+  background: #f7fbff;
+}
+
+.etr-withdrawal-muted {
+  display: block;
+  color: #587390;
+  font-size: 0.84rem;
+  padding: 14px;
+}
+
+@media (max-width: 720px) {
+  .etr-withdrawal-stock-filters {
+    grid-template-columns: 1fr;
   }
 }

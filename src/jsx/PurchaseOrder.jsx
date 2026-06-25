@@ -333,10 +333,6 @@ export default function PurchaseOrder() {
             </tbody>
           </table>
         </div>
-        <div className="etr-po-statusbar">
-          <span>Purchase Date: {formatShortDate(formData.purchaseDate)}</span>
-          <span>Delivery Date: {formatShortDate(formData.deliveryDate)}</span>
-        </div>
       </section>
     </div>
   );

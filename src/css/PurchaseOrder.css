@@ -263,6 +263,207 @@
   min-width: 0;
 }
 
+.etr-po-lookup-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(12, 27, 45, 0.5);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.etr-po-lookup-modal {
+  width: min(680px, 100%);
+  max-height: min(90vh, 720px);
+  overflow: auto;
+  border-radius: 16px;
+  background: #ffffff;
+  box-shadow: 0 24px 60px rgba(8, 31, 66, 0.18);
+  padding: 22px;
+}
+
+.etr-po-lookup-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.etr-po-lookup-head h2 {
+  margin: 0;
+  color: var(--po-text);
+  font-size: 1.05rem;
+}
+
+.etr-po-lookup-search {
+  display: block;
+  margin-bottom: 14px;
+}
+
+.etr-po-lookup-search input {
+  width: 100%;
+  min-width: 0;
+  border: 1px solid rgba(27, 90, 150, 0.18);
+  border-radius: 10px;
+  padding: 10px 12px;
+  font: inherit;
+  font-size: 0.95rem;
+}
+
+.etr-po-lookup-list {
+  display: grid;
+  gap: 10px;
+}
+
+.etr-po-lookup-list button {
+  display: grid;
+  gap: 4px;
+  width: 100%;
+  text-align: left;
+  border: 1px solid rgba(27, 90, 150, 0.18);
+  border-radius: 12px;
+  background: #f7fbff;
+  color: #173652;
+  padding: 12px 14px;
+  cursor: pointer;
+}
+
+.etr-po-lookup-list button strong {
+  display: block;
+  font-size: 0.95rem;
+  font-weight: 800;
+}
+
+.etr-po-lookup-list button span {
+  display: block;
+  color: #4f6f8f;
+  font-size: 0.86rem;
+}
+
+.etr-po-search-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(12, 27, 45, 0.35);
+  display: grid;
+  place-items: center;
+  padding: 20px;
+}
+
+.etr-po-search-modal {
+  width: min(620px, 100%);
+  max-height: min(70vh, 520px);
+  overflow: hidden;
+  border-radius: 12px;
+  background: #ffffff;
+  box-shadow: 0 14px 28px rgba(8, 31, 66, 0.14);
+  padding: 12px;
+  display: grid;
+  gap: 8px;
+}
+
+.etr-po-search-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.etr-po-search-head h2 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.etr-po-search-table-wrap {
+  overflow: hidden;
+  border: 1px solid rgba(27, 90, 150, 0.14);
+  border-radius: 10px;
+  max-height: 240px;
+}
+
+.etr-po-search-table {
+  width: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+}
+
+.etr-po-search-table th,
+.etr-po-search-table td {
+  padding: 6px 8px;
+  border-bottom: 1px solid rgba(27, 90, 150, 0.12);
+  text-align: left;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.etr-po-search-table th {
+  background: #eef6fd;
+  color: #173652;
+  font-weight: 700;
+  text-transform: uppercase;
+  cursor: pointer;
+  user-select: none;
+}
+
+.etr-po-search-filter-row input {
+  width: 100%;
+  border: 1px solid rgba(27, 90, 150, 0.18);
+  border-radius: 6px;
+  background: #f7fbff;
+  padding: 5px 8px;
+  font: inherit;
+}
+
+.etr-po-search-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.etr-po-search-actions button {
+  min-height: 34px;
+  padding: 0 12px;
+}
+
+.etr-po-search-table tr.selected {
+  background: rgba(27, 90, 150, 0.1);
+}
+
+.etr-po-search-table tr:hover {
+  background: rgba(27, 90, 150, 0.06);
+}
+
+.etr-po-search-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.etr-po-search-actions button {
+  min-height: 38px;
+  border-radius: 10px;
+  border: 1px solid rgba(27, 90, 150, 0.18);
+  background: #ffffff;
+  color: #173652;
+  padding: 0 16px;
+  cursor: pointer;
+  font: inherit;
+}
+
+.etr-po-search-actions button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.etr-po-search-actions > div {
+  display: flex;
+  gap: 10px;
+}
+
 .etr-po-summary-card {
   gap: 9px;
 }

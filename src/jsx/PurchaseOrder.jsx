@@ -16,13 +16,37 @@ const toolbarActions = [
   { id: 'save', label: 'Save' },
   { id: 'undo', label: 'Undo' },
   { id: 'print', label: 'Print', disabled: true },
-  { id: 'approve', label: 'Approve Order', disabled: true },
-  { id: 'receive', label: 'Receive Order', disabled: true },
+  { id: 'approve', label: 'Approve', disabled: true },
   { id: 'cancel', label: 'Cancel' },
   { id: 'closed', label: 'Closed PO', disabled: true },
 ];
+const createBlankRow = () => ({
+  id: `po-line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+  selected: false,
+  itemCode: '',
+  itemDescription: '',
+  free: false,
+  unit: '',
+  quantity: 0,
+  purchaseCost: 0,
+  comments: '',
+});
 
-const purchaseItems = [];
+const getStatusLabel = (status) => {
+  const statusCode = Number(status);
+  switch (statusCode) {
+    case 0: return 'Deleted';
+    case 1: return 'Open';
+    case 2: return 'Approved';
+    case 3: return 'Cancelled';
+    case 4: return 'Received';
+    case 5: return 'Partially Paid';
+    case 6: return 'Paid';
+    case 7: return 'Closed';
+    default: return 'Open';
+  }
+};
+
 
 function buildApiUrl(path) {
   return apiBaseUrl ? `${apiBaseUrl}${path}` : path;
@@ -162,7 +186,7 @@ function SearchModal({ title, type, rows, filters, selectedRow, onFilterChange, 
                       <td>{formatShortDate(row.date ? row.date.split('T')[0] : '')}</td>
                       <td>{row.vendorName}</td>
                       <td>{formatMoney(row.total)}</td>
-                      <td>{row.status === 2 ? 'Approved' : row.status === 3 ? 'Cancelled' : 'Open'}</td>
+                      <td>{getStatusLabel(row.status)}</td>
                     </tr>
                   ))}
                   {sortedRows.length === 0 ? (
@@ -266,7 +290,7 @@ function SearchModal({ title, type, rows, filters, selectedRow, onFilterChange, 
 }
 
 export default function PurchaseOrder() {
-  const [rows, setRows] = useState(purchaseItems);
+  const [rows, setRows] = useState([createBlankRow()]);
   const [vendors, setVendors] = useState([]);
   const [companies, setCompanies] = useState([]);
   const [deliveryAddresses, setDeliveryAddresses] = useState([]);
@@ -290,7 +314,7 @@ export default function PurchaseOrder() {
     deliveryAddress: '',
     referenceType: '',
     referenceNo: '',
-    createdBy: '',
+    createdBy: 'Current User',
     modifiedBy: '',
     approvedBy: '',
     cancelledBy: '',
@@ -316,6 +340,7 @@ export default function PurchaseOrder() {
   };
 
   const openLookup = (type) => {
+    if (Number(formData.status || 1) !== 1) return;
     setLookupType(type);
     setLookupFilters({ code: '', name: '', third: '' });
     setLookupSelectedRow(null);
@@ -384,9 +409,8 @@ export default function PurchaseOrder() {
         return isNew || status !== 1;
       case 'cancel':
         return isNew || status !== 1;
-      case 'receive':
       case 'closed':
-        return true;
+        return isNew || status !== 2;
       default:
         return true;
     }
@@ -406,7 +430,8 @@ export default function PurchaseOrder() {
     if (!formData.deliveryAddressId) {
       errors.deliveryAddressId = 'Delivery address is required.';
     }
-    if (rows.length === 0) {
+    const nonEmptyLines = rows.filter((row) => row.itemCode && row.itemCode.trim());
+    if (nonEmptyLines.length === 0) {
       errors.lines = 'At least one item line is required.';
     }
     setFormErrors(errors);
@@ -418,6 +443,7 @@ export default function PurchaseOrder() {
   };
 
   const openItemLookup = (rowId) => {
+    if (Number(formData.status || 1) !== 1) return;
     setActiveRowId(rowId);
     openLookup('item');
   };
@@ -498,15 +524,17 @@ export default function PurchaseOrder() {
           approvedBy: formData.approvedBy,
           cancelledBy: formData.cancelledBy,
           cancelRemarks: formData.cancelRemarks,
-          lines: rows.map((row) => ({
-            itemCode: row.itemCode,
-            itemDescription: row.itemDescription,
-            free: row.free,
-            unit: row.unit,
-            quantity: Number(row.quantity),
-            purchaseCost: Number(row.purchaseCost),
-            comments: row.comments,
-          })),
+          lines: rows
+            .filter((row) => row.itemCode && row.itemCode.trim() !== '')
+            .map((row) => ({
+              itemCode: row.itemCode,
+              itemDescription: row.itemDescription,
+              free: row.free,
+              unit: row.unit,
+              quantity: Number(row.quantity),
+              purchaseCost: Number(row.purchaseCost),
+              comments: row.comments,
+            })),
         }),
       });
 
@@ -549,13 +577,13 @@ export default function PurchaseOrder() {
       deliveryAddress: '',
       referenceType: '',
       referenceNo: '',
-      createdBy: '',
+      createdBy: 'Current User',
       modifiedBy: '',
       approvedBy: '',
       cancelledBy: '',
       cancelRemarks: '',
     });
-    setRows([]);
+    setRows([createBlankRow()]);
     setSaveStatus({ message: '', error: '' });
     setFormErrors({});
   };
@@ -686,6 +714,25 @@ export default function PurchaseOrder() {
     }
   };
 
+  const handleClose = async () => {
+    const purchaseOrderId = Number(formData.id || 0);
+    if (purchaseOrderId <= 0) return;
+    if (!window.confirm('Are you sure you want to close this purchase order?')) return;
+    
+    try {
+      const token = getToken();
+      const response = await fetch(buildApiUrl(`${PURCHASE_ORDERS_ENDPOINT}/${purchaseOrderId}/close`), {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) throw new Error('Failed to close purchase order.');
+      setSaveStatus({ message: 'Purchase order closed successfully.', error: '' });
+      loadPurchaseOrderDetails(purchaseOrderId);
+    } catch (error) {
+      setSaveStatus({ message: '', error: error.message });
+    }
+  };
+
   const handleToolbarAction = (actionId) => {
     if (actionId === 'save') {
       handleSave();
@@ -703,6 +750,8 @@ export default function PurchaseOrder() {
       handleApprove();
     } else if (actionId === 'cancel') {
       handleCancel();
+    } else if (actionId === 'closed') {
+      handleClose();
     }
   };
 
@@ -830,7 +879,9 @@ export default function PurchaseOrder() {
   };
 
   const totals = useMemo(() => {
-    const grossTotal = rows.reduce((sum, row) => sum + (Number(row.quantity) * Number(row.purchaseCost)), 0);
+    const grossTotal = rows
+      .filter((row) => row.itemCode && row.itemCode.trim() !== '')
+      .reduce((sum, row) => sum + (Number(row.quantity) * Number(row.purchaseCost)), 0);
     return {
       grossTotal,
       grossDiscount: 0,
@@ -853,20 +904,31 @@ export default function PurchaseOrder() {
     });
   };
 
-  const addRow = () => {
-    const newRow = {
-      id: `po-line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-      selected: false,
-      itemCode: '',
-      itemDescription: '',
-      free: false,
-      unit: '',
-      quantity: 0,
-      purchaseCost: 0,
-      comments: '',
-    };
-    setRows((current) => [...current, newRow]);
-  };
+  useEffect(() => {
+    const isEditable = Number(formData.status || 1) === 1;
+    if (!isEditable) return;
+
+    if (rows.length === 0) {
+      setRows([createBlankRow()]);
+      return;
+    }
+
+    const lastRow = rows[rows.length - 1];
+    const hasItemCode = lastRow.itemCode && lastRow.itemCode.trim() !== '';
+    const hasEmptyRow = rows.some(row => !row.itemCode || row.itemCode.trim() === '');
+
+    if (hasItemCode && !hasEmptyRow) {
+      setRows((current) => [...current, createBlankRow()]);
+    }
+
+    const nonEmptyRows = rows.filter(row => row.itemCode && row.itemCode.trim() !== '');
+    const emptyRows = rows.filter(row => !row.itemCode || row.itemCode.trim() === '');
+
+    if (emptyRows.length > 1) {
+      const keepEmptyRow = emptyRows[emptyRows.length - 1];
+      setRows([...nonEmptyRows, keepEmptyRow]);
+    }
+  }, [rows, formData.status]);
 
   return (
     <div className="etr-po-entry">
@@ -907,7 +969,6 @@ export default function PurchaseOrder() {
                   <div className="etr-po-card-head">
                     <div>
                       <p>General</p>
-                      <h2>Transaction Info</h2>
                     </div>
                   </div>
                   <div className="etr-po-form-grid two">
@@ -943,7 +1004,6 @@ export default function PurchaseOrder() {
                   <div className="etr-po-card-head">
                     <div>
                       <p>Vendor</p>
-                      <h2>Supplier Info</h2>
                     </div>
                   </div>
                   <div className="etr-po-form-grid two">
@@ -1023,7 +1083,6 @@ export default function PurchaseOrder() {
                   <div className="etr-po-card-head">
                     <div>
                       <p>Reference</p>
-                      <h2>Source Info</h2>
                     </div>
                   </div>
                   <div className="etr-po-form-grid two">
@@ -1063,7 +1122,6 @@ export default function PurchaseOrder() {
                   <div className="etr-po-card-head">
                     <div>
                       <p>System Logs</p>
-                      <h2>Audit Trail</h2>
                     </div>
                   </div>
                   <div className="etr-po-audit-grid">
@@ -1093,17 +1151,15 @@ export default function PurchaseOrder() {
               <div className="etr-po-card-head">
                 <div>
                   <p>Status</p>
-                  <h2>Current PO State</h2>
                 </div>
               </div>
-              <input value={formData.status === 2 ? 'Approved' : formData.status === 3 ? 'Cancelled' : 'Open'} readOnly />
+              <input value={getStatusLabel(formData.status)} readOnly />
             </section>
 
             <section className="etr-po-card etr-po-summary-card">
               <div className="etr-po-card-head">
                 <div>
                   <p>Amount</p>
-                  <h2>Auto-computed Totals</h2>
                 </div>
               </div>
               <Field label="Gross Total">
@@ -1125,13 +1181,14 @@ export default function PurchaseOrder() {
       {/* Lines panel – matches withdrawal’s table panel */}
       <section className="etr-po-table-panel" style={{ borderColor: formErrors.lines ? '#c93636' : undefined }}>
         <div className="etr-po-table-tools">
-          <button type="button" onClick={deleteSelectedRows} disabled={!rows.some((row) => row.selected)}>
+          <button
+            type="button"
+            onClick={deleteSelectedRows}
+            disabled={Number(formData.status || 1) !== 1 || !rows.some((row) => row.selected)}
+          >
             Delete Selected
           </button>
-          <button type="button" className="is-primary" onClick={addRow}>
-            Add Row
-          </button>
-          <span>Total Items: {rows.length}</span>
+          <span>Total Items: {rows.filter(r => r.itemCode && r.itemCode.trim()).length}</span>
           {formErrors.lines ? <span style={{ color: '#b42d2d', borderLeft: 'none', paddingLeft: 0 }}>{formErrors.lines}</span> : null}
         </div>
 
@@ -1153,61 +1210,76 @@ export default function PurchaseOrder() {
             <tbody>
               {rows.map((row) => {
                 const amount = Number(row.quantity) * Number(row.purchaseCost);
+                const isEditable = Number(formData.status || 1) === 1;
                 return (
                   <tr key={row.id}>
                     <td>
-                      <input type="checkbox" checked={row.selected} onChange={(e) => updateRow(row.id, 'selected', e.target.checked)} />
-                    </td>
-                    <td>
-                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                        <input
-                          value={row.itemCode}
-                          onChange={(e) => updateRow(row.id, 'itemCode', e.target.value)}
-                          onDoubleClick={() => openItemLookup(row.id)}
-                          placeholder="Double click or click search"
-                          style={{ paddingRight: '28px' }}
-                        />
-                        <button
-                          type="button"
-                          onClick={() => openItemLookup(row.id)}
-                          style={{
-                            position: 'absolute',
-                            right: '4px',
-                            background: 'transparent',
-                            border: 'none',
-                            cursor: 'pointer',
-                            fontSize: '0.8rem',
-                            padding: '4px',
-                            color: '#1b5a96'
-                          }}
-                          aria-label="Search item"
-                        >
-                          🔍
-                        </button>
-                      </div>
-                    </td>
-                    <td>
                       <input
-                        value={row.itemDescription}
-                        onChange={(e) => updateRow(row.id, 'itemDescription', e.target.value)}
-                        onDoubleClick={() => openItemLookup(row.id)}
+                        type="checkbox"
+                        checked={row.selected}
+                        onChange={(e) => updateRow(row.id, 'selected', e.target.checked)}
+                        disabled={!isEditable}
                       />
                     </td>
                     <td>
-                      <input type="checkbox" checked={row.free} onChange={(e) => updateRow(row.id, 'free', e.target.checked)} />
+                      <button
+                        type="button"
+                        className="etr-po-link"
+                        onClick={() => openItemLookup(row.id)}
+                        disabled={!isEditable}
+                      >
+                        {row.itemCode || 'Click to Select'}
+                      </button>
                     </td>
                     <td>
-                      <input value={row.unit} onChange={(e) => updateRow(row.id, 'unit', e.target.value)} />
+                      <button
+                        type="button"
+                        className="etr-po-link"
+                        onClick={() => openItemLookup(row.id)}
+                        disabled={!isEditable}
+                      >
+                        {row.itemDescription || 'Click to Select'}
+                      </button>
                     </td>
                     <td>
-                      <input type="number" value={row.quantity} onChange={(e) => updateRow(row.id, 'quantity', e.target.value)} />
+                      <input
+                        type="checkbox"
+                        checked={row.free}
+                        onChange={(e) => updateRow(row.id, 'free', e.target.checked)}
+                        disabled={!isEditable}
+                      />
                     </td>
                     <td>
-                      <input type="number" step="0.0001" value={row.purchaseCost} onChange={(e) => updateRow(row.id, 'purchaseCost', e.target.value)} />
+                      <input
+                        value={row.unit}
+                        onChange={(e) => updateRow(row.id, 'unit', e.target.value)}
+                        readOnly={!isEditable}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        value={row.quantity}
+                        onChange={(e) => updateRow(row.id, 'quantity', e.target.value)}
+                        readOnly={!isEditable}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        type="number"
+                        step="0.0001"
+                        value={row.purchaseCost}
+                        onChange={(e) => updateRow(row.id, 'purchaseCost', e.target.value)}
+                        readOnly={!isEditable}
+                      />
                     </td>
                     <td className="is-money">{formatMoney(amount)}</td>
                     <td>
-                      <input value={row.comments} onChange={(e) => updateRow(row.id, 'comments', e.target.value)} />
+                      <input
+                        value={row.comments}
+                        onChange={(e) => updateRow(row.id, 'comments', e.target.value)}
+                        readOnly={!isEditable}
+                      />
                     </td>
                   </tr>
                 );

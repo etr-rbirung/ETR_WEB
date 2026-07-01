@@ -345,7 +345,7 @@ export default function PurchaseOrder() {
     setLookupFilters({ code: '', name: '', third: '' });
     setLookupSelectedRow(null);
     setLookupError('');
-    refreshLookupRows();
+    refreshLookupRows(type);
   };
 
   const closeLookup = () => {
@@ -448,26 +448,27 @@ export default function PurchaseOrder() {
     openLookup('item');
   };
 
-  const refreshLookupRows = async () => {
-    if (!lookupType) return;
+  const refreshLookupRows = async (typeOverride) => {
+    const activeType = (typeof typeOverride === 'string' ? typeOverride : null) ?? lookupType;
+    if (!activeType) return;
 
     setLookupLoading(true);
     setLookupError('');
 
     try {
-      if (lookupType === 'po') {
+      if (activeType === 'po') {
         const poItems = await fetchJson(PURCHASE_ORDERS_ENDPOINT, null);
         setPurchaseOrders(poItems);
-      } else if (lookupType === 'vendor') {
+      } else if (activeType === 'vendor') {
         const vendorItems = await fetchJson(`${VENDORS_ENDPOINT}?query=`, null);
         setVendors(vendorItems);
-      } else if (lookupType === 'company') {
+      } else if (activeType === 'company') {
         const companyItems = await fetchJson(COMPANIES_ENDPOINT, null);
         setCompanies(companyItems);
-      } else if (lookupType === 'address') {
+      } else if (activeType === 'address') {
         await loadVendorAddresses(formData.vendorId, null);
-      } else if (lookupType === 'item') {
-        const itemRows = await fetchJson('/api/withdrawals/items?query=', null);
+      } else if (activeType === 'item') {
+        const itemRows = await fetchJson('/api/purchase-orders/items?query=', null);
         setItems(itemRows);
       }
     } catch (error) {
@@ -1113,7 +1114,7 @@ export default function PurchaseOrder() {
                     onSelect={confirmLookupSelection}
                     onRowSelect={handleLookupSelection}
                     onClose={closeLookup}
-                    onRefresh={refreshLookupRows}
+                    onRefresh={() => refreshLookupRows()}
                     error={lookupError}
                   />
                 )}

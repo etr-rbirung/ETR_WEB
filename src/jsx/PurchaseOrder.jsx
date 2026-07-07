@@ -1,14 +1,16 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { getToken } from '../services/authStorage';
 import '../css/PurchaseOrder.css';
 
-const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$|\/$/, '');
+const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
 const PURCHASE_ORDERS_ENDPOINT = '/api/purchase-orders';
 const VENDORS_ENDPOINT = `${PURCHASE_ORDERS_ENDPOINT}/vendors`;
 const COMPANIES_ENDPOINT = `${PURCHASE_ORDERS_ENDPOINT}/companies`;
 const VENDOR_ADDRESSES_ENDPOINT = `${PURCHASE_ORDERS_ENDPOINT}/vendor-addresses`;
 const TERMS_ENDPOINT = `${PURCHASE_ORDERS_ENDPOINT}/terms`;
+const ITEMS_ENDPOINT = `${PURCHASE_ORDERS_ENDPOINT}/items`;
 
+// ---------- Constants ----------
 const toolbarActions = [
   { id: 'new', label: 'New', disabled: true },
   { id: 'edit', label: 'Edit', disabled: true },
@@ -20,8 +22,9 @@ const toolbarActions = [
   { id: 'cancel', label: 'Cancel' },
   { id: 'closed', label: 'Closed PO', disabled: true },
 ];
+
 const createBlankRow = () => ({
-  id: `po-line-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+  id: `po-line-${Date.now()}-${Math.random().toString(36).substring(2, 11)}`,
   selected: false,
   itemCode: '',
   itemDescription: '',
@@ -32,117 +35,248 @@ const createBlankRow = () => ({
   comments: '',
 });
 
+// ---------- Helpers ----------
 const getStatusLabel = (status) => {
-  const statusCode = Number(status);
-  switch (statusCode) {
-    case 0: return 'Deleted';
-    case 1: return 'Open';
-    case 2: return 'Approved';
-    case 3: return 'Cancelled';
-    case 4: return 'Received';
-    case 5: return 'Partially Paid';
-    case 6: return 'Paid';
-    case 7: return 'Closed';
-    default: return 'Open';
-  }
+  const s = Number(status);
+  const map = {
+    0: 'Deleted',
+    1: 'Open',
+    2: 'Approved',
+    3: 'Cancelled',
+    4: 'Received',
+    5: 'Partially Paid',
+    6: 'Paid',
+    7: 'Closed',
+  };
+  return map[s] || 'Open';
 };
 
+const buildApiUrl = (path) => (apiBaseUrl ? `${apiBaseUrl}${path}` : path);
 
-function buildApiUrl(path) {
-  return apiBaseUrl ? `${apiBaseUrl}${path}` : path;
-}
-
-function getApiCollection(data) {
+const getApiCollection = (data) => {
   if (Array.isArray(data)) return data;
   if (Array.isArray(data?.items)) return data.items;
   if (Array.isArray(data?.data)) return data.data;
   if (Array.isArray(data?.result)) return data.result;
   if (Array.isArray(data?.records)) return data.records;
-
+  if (data && typeof data === 'object') return data;
+  console.warn('Unexpected API response shape:', data);
   return [];
-}
+};
 
-function formatMoney(value) {
-  return Number(value || 0).toFixed(4);
-}
+const formatMoney = (value) => Number(value || 0).toFixed(4);
 
-function formatShortDate(value) {
+const formatShortDate = (value) => {
   if (!value) return '';
-  const [year, month, day] = value.split('-');
+  const dateStr = value.split('T')[0];
+  const [year, month, day] = dateStr.split('-');
   return `${Number(month)}/${Number(day)}/${year}`;
-}
+};
 
-function Field({ label, link = false, children, className = '', error = '', onLabelClick }) {
-  return (
-    <label className={`etr-po-field ${className} ${error ? 'has-error' : ''}`}>
+const ensureEmptyRow = (rows) => {
+  const hasEmpty = rows.some((r) => !r.itemCode || r.itemCode.trim() === '');
+  if (hasEmpty) return rows;
+  return [...rows, createBlankRow()];
+};
+
+// ---------- Subcomponents ----------
+const Field = ({ label, link = false, children, className = '', error = '', onLabelClick }) => (
+  <label className={`etr-po-field ${className} ${error ? 'has-error' : ''}`}>
+    <button
+      type="button"
+      className={link ? 'is-link-label' : ''}
+      onClick={onLabelClick}
+      disabled={!onLabelClick}
+      tabIndex={-1}
+    >
+      {label}
+    </button>
+    {children || <input type="text" />}
+    {error && <small>{error}</small>}
+  </label>
+);
+
+// Reusable lookup field that renders a clickable area to open the modal
+const LookupField = ({
+  label,
+  value,
+  code,
+  onLookup,
+  error,
+  isTextarea = false,
+  split = false,
+}) => (
+  <Field label={label} link className="is-wide" onLabelClick={onLookup} error={error}>
+    <div className="etr-po-lookup-wrapper">
+      {split ? (
+        <div className="etr-po-split-input">
+          <input value={code || ''} readOnly />
+          <input value={value || ''} readOnly />
+        </div>
+      ) : isTextarea ? (
+        <textarea rows="4" value={value || ''} readOnly />
+      ) : (
+        <input value={value || ''} readOnly />
+      )}
       <button
         type="button"
-        className={link ? 'is-link-label' : ''}
-        onClick={onLabelClick}
-        disabled={!onLabelClick}
-        tabIndex={-1}
-      >
-        {label}
-      </button>
-      {children || <input type="text" />}
-      {error ? <small>{error}</small> : null}
-    </label>
-  );
-}
+        className="etr-po-lookup-overlay"
+        onClick={onLookup}
+        aria-label={`Search ${label}`}
+      />
+    </div>
+  </Field>
+);
 
-function SearchModal({ title, type, rows, filters, selectedRow, onFilterChange, onSelect, onClose, onRefresh, error, onRowSelect }) {
+// Search Modal (unchanged but with duplicate error removed)
+const SearchModal = ({
+  title,
+  type,
+  rows,
+  filters,
+  selectedRow,
+  onFilterChange,
+  onSelect,
+  onClose,
+  onRefresh,
+  error,
+  onRowSelect,
+}) => {
   const [sortField, setSortField] = useState('code');
   const [sortDirection, setSortDirection] = useState('asc');
   const selectedRowId = selectedRow?.id;
 
   const getSortValue = (row, field) => {
-    if (field === 'code') {
-      return String(row.code ?? row.name ?? '').toLowerCase();
-    }
-
+    if (field === 'code') return String(row.code ?? row.name ?? '').toLowerCase();
     if (field === 'name') {
-      return String(type === 'address' ? row.name : type === 'po' ? row.vendorName : row.name ?? row.description ?? '').toLowerCase();
+      if (type === 'address') return String(row.name || '').toLowerCase();
+      if (type === 'po') return String(row.vendorName || '').toLowerCase();
+      return String(row.name ?? row.description ?? '').toLowerCase();
     }
-
-    return String(type === 'vendor' ? row.classificationType : type === 'item' ? row.unit : type === 'company' ? row.address : type === 'po' ? row.total : row.address ?? '').toLowerCase();
+    if (field === 'third') {
+      if (type === 'vendor') return String(row.classificationType || '').toLowerCase();
+      if (type === 'item') return String(row.unit || '').toLowerCase();
+      if (type === 'company') return String(row.address || '').toLowerCase();
+      if (type === 'po') return String(row.total || '').toLowerCase();
+      return String(row.address || '').toLowerCase();
+    }
+    return '';
   };
 
   const filteredRows = rows.filter((row) => {
-    const codeMatch = String(row.code ?? row.name ?? '').toLowerCase().includes((filters.code || '').trim().toLowerCase());
-    const nameMatch = String(type === 'address' ? row.name : type === 'po' ? row.vendorName : row.name ?? row.description ?? '').toLowerCase().includes((filters.name || '').trim().toLowerCase());
-    const thirdValue = String(type === 'vendor' ? row.classificationType : type === 'item' ? row.unit : type === 'company' ? row.address : type === 'po' ? row.total : row.address ?? '').toLowerCase();
-    const thirdMatch = thirdValue.includes((filters.third || '').trim().toLowerCase());
-
-    return codeMatch && nameMatch && thirdMatch;
+    const code = String(row.code ?? row.name ?? '').toLowerCase();
+    const name = (() => {
+      if (type === 'address') return String(row.name || '').toLowerCase();
+      if (type === 'po') return String(row.vendorName || '').toLowerCase();
+      return String(row.name ?? row.description ?? '').toLowerCase();
+    })();
+    const third = (() => {
+      if (type === 'vendor') return String(row.classificationType || '').toLowerCase();
+      if (type === 'item') return String(row.unit || '').toLowerCase();
+      if (type === 'company') return String(row.address || '').toLowerCase();
+      if (type === 'po') return String(row.total || '').toLowerCase();
+      return String(row.address || '').toLowerCase();
+    })();
+    const q = (v) => v.trim().toLowerCase();
+    return (
+      code.includes(q(filters.code)) &&
+      name.includes(q(filters.name)) &&
+      third.includes(q(filters.third))
+    );
   });
 
-  const sortedRows = [...filteredRows].sort((first, second) => {
-    const a = getSortValue(first, sortField);
-    const b = getSortValue(second, sortField);
-
-    if (a === b) return 0;
-    const result = a < b ? -1 : 1;
+  const sortedRows = [...filteredRows].sort((a, b) => {
+    const va = getSortValue(a, sortField);
+    const vb = getSortValue(b, sortField);
+    if (va === vb) return 0;
+    const result = va < vb ? -1 : 1;
     return sortDirection === 'asc' ? result : -result;
   });
 
   const toggleSort = (field) => {
     if (sortField === field) {
-      setSortDirection((current) => (current === 'asc' ? 'desc' : 'asc'));
+      setSortDirection((cur) => (cur === 'asc' ? 'desc' : 'asc'));
     } else {
       setSortField(field);
       setSortDirection('asc');
     }
   };
 
-  const renderSortIcon = (field) => {
-    if (sortField !== field) return '';
-    return sortDirection === 'asc' ? ' ▲' : ' ▼';
-  };
+  const renderSortIcon = (field) =>
+    sortField === field ? (sortDirection === 'asc' ? ' ▲' : ' ▼') : '';
+
+  const columns = (() => {
+    if (type === 'po') {
+      return {
+        headers: [
+          { key: 'code', label: 'PO Number', sortable: true },
+          { key: 'date', label: 'Date' },
+          { key: 'name', label: 'Vendor Name', sortable: true },
+          { key: 'total', label: 'Total' },
+          { key: 'status', label: 'Status' },
+        ],
+        filters: ['code', 'name'],
+        render: (row) => (
+          <>
+            <td>{row.code}</td>
+            <td>{formatShortDate(row.date ? row.date.split('T')[0] : '')}</td>
+            <td>{row.vendorName}</td>
+            <td>{formatMoney(row.total)}</td>
+            <td>{getStatusLabel(row.status)}</td>
+          </>
+        ),
+        colSpan: 5,
+      };
+    }
+    if (type === 'company') {
+      return {
+        headers: [
+          { key: 'name', label: 'Company Name', sortable: true },
+          { key: 'address', label: 'Address', sortable: true },
+        ],
+        filters: ['name', 'third'],
+        render: (row) => (
+          <>
+            <td>{row.description}</td>
+            <td>{row.address}</td>
+          </>
+        ),
+        colSpan: 2,
+      };
+    }
+    // vendor, item, address
+    const thirdLabel =
+      type === 'vendor' ? 'Classification Type' : type === 'item' ? 'Unit' : 'Address';
+    return {
+      headers: [
+        { key: 'code', label: 'Code', sortable: true },
+        { key: 'name', label: 'Name', sortable: true },
+        { key: 'third', label: thirdLabel, sortable: true },
+      ],
+      filters: ['code', 'name', 'third'],
+      render: (row) => (
+        <>
+          <td>{row.code ?? row.name ?? ''}</td>
+          <td>
+            {type === 'address' ? row.name : type === 'item' ? row.description : row.name ?? row.description}
+          </td>
+          <td>
+            {type === 'vendor'
+              ? row.classificationType
+              : type === 'item'
+              ? row.unit
+              : row.address}
+          </td>
+        </>
+      ),
+      colSpan: 3,
+    };
+  })();
 
   return (
-    <div className="etr-po-search-backdrop" role="presentation">
-      <section className="etr-po-search-modal" role="dialog" aria-modal="true" aria-label={title}>
-        <div className="etr-po-search-head">
+    <div className="etr-po-modal-backdrop" role="presentation">
+      <section className="etr-po-modal" role="dialog" aria-modal="true" aria-label={title}>
+        <div className="etr-po-modal-head">
           <div>
             <p className="etr-po-kicker">Search</p>
             <h2>{title}</h2>
@@ -152,149 +286,68 @@ function SearchModal({ title, type, rows, filters, selectedRow, onFilterChange, 
 
         <div className="etr-po-search-table-wrap">
           <table className="etr-po-search-table">
-            {type === 'po' ? (
-              <>
-                <thead>
-                  <tr>
-                    <th onClick={() => toggleSort('code')}>PO Number{renderSortIcon('code')}</th>
-                    <th>Date</th>
-                    <th onClick={() => toggleSort('name')}>Vendor Name{renderSortIcon('name')}</th>
-                    <th>Total</th>
-                    <th>Status</th>
-                  </tr>
-                  <tr className="etr-po-search-filter-row">
-                    <th>
-                      <input type="search" value={filters.code} onChange={(e) => onFilterChange('code', e.target.value)} placeholder="" />
-                    </th>
-                    <th></th>
-                    <th>
-                      <input type="search" value={filters.name} onChange={(e) => onFilterChange('name', e.target.value)} placeholder="" />
-                    </th>
-                    <th></th>
-                    <th></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedRows.map((row) => (
-                    <tr
-                      key={row.id}
-                      className={String(row.id) === String(selectedRowId) ? 'selected' : ''}
-                      onClick={() => onRowSelect ? onRowSelect(row) : onSelect(row)}
-                      onDoubleClick={() => onSelect(row)}
-                    >
-                      <td>{row.code}</td>
-                      <td>{formatShortDate(row.date ? row.date.split('T')[0] : '')}</td>
-                      <td>{row.vendorName}</td>
-                      <td>{formatMoney(row.total)}</td>
-                      <td>{getStatusLabel(row.status)}</td>
-                    </tr>
-                  ))}
-                  {sortedRows.length === 0 ? (
-                    <tr>
-                      <td colSpan="5">No records found.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </>
-            ) : type === 'company' ? (
-              <>
-                <thead>
-                  <tr>
-                    <th onClick={() => toggleSort('name')}>CompanyName{renderSortIcon('name')}</th>
-                    <th onClick={() => toggleSort('address')}>Address{renderSortIcon('address')}</th>
-                  </tr>
-                  <tr className="etr-po-search-filter-row">
-                    <th>
-                      <input type="search" value={filters.name} onChange={(e) => onFilterChange('name', e.target.value)} placeholder="" />
-                    </th>
-                    <th>
-                      <input type="search" value={filters.third} onChange={(e) => onFilterChange('third', e.target.value)} placeholder="" />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedRows.map((row) => (
-                    <tr
-                      key={row.id ?? `${row.description ?? ''}-${row.address ?? ''}`}
-                      className={String(row.id) === String(selectedRowId) ? 'selected' : ''}
-                      onClick={() => onRowSelect ? onRowSelect(row) : onSelect(row)}
-                      onDoubleClick={() => onSelect(row)}
-                    >
-                      <td>{row.description}</td>
-                      <td>{row.address}</td>
-                    </tr>
-                  ))}
-                  {sortedRows.length === 0 ? (
-                    <tr>
-                      <td colSpan="2">No records found.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </>
-            ) : (
-              <>
-                <thead>
-                  <tr>
-                    <th onClick={() => toggleSort('code')}>Code{renderSortIcon('code')}</th>
-                    <th onClick={() => toggleSort('name')}>Name{renderSortIcon('name')}</th>
-                    <th onClick={() => toggleSort('third')}>{type === 'vendor' ? 'Classification Type' : type === 'item' ? 'Unit' : 'Address'}{renderSortIcon('third')}</th>
-                  </tr>
-                  <tr className="etr-po-search-filter-row">
-                    <th>
-                      <input type="search" value={filters.code} onChange={(event) => onFilterChange('code', event.target.value)} placeholder="" />
-                    </th>
-                    <th>
-                      <input type="search" value={filters.name} onChange={(event) => onFilterChange('name', event.target.value)} placeholder="" />
-                    </th>
-                    <th>
-                      <input type="search" value={filters.third} onChange={(event) => onFilterChange('third', event.target.value)} placeholder="" />
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedRows.map((row) => (
-                    <tr
-                      key={row.id ?? `${row.code ?? row.name}-${row.description ?? row.address}`}
-                      className={String(row.id) === String(selectedRowId) ? 'selected' : ''}
-                      onClick={() => onRowSelect ? onRowSelect(row) : onSelect(row)}
-                      onDoubleClick={() => onSelect(row)}
-                    >
-                      <td>{row.code ?? row.name ?? ''}</td>
-                      <td>{type === 'address' ? row.name : type === 'item' ? row.description : row.name ?? row.description}</td>
-                      <td>{type === 'vendor' ? row.classificationType : type === 'item' ? row.unit : row.address}</td>
-                    </tr>
-                  ))}
-                  {sortedRows.length === 0 ? (
-                    <tr>
-                      <td colSpan="3">No records found.</td>
-                    </tr>
-                  ) : null}
-                </tbody>
-              </>
-            )}
+            <thead>
+              <tr>
+                {columns.headers.map((h) => (
+                  <th key={h.key} onClick={h.sortable ? () => toggleSort(h.key) : undefined}>
+                    {h.label}
+                    {h.sortable && renderSortIcon(h.key)}
+                  </th>
+                ))}
+              </tr>
+              <tr className="etr-po-search-filter-row">
+                {columns.headers.map((h) => (
+                  <th key={`filter-${h.key}`}>
+                    {columns.filters.includes(h.key) && (
+                      <input
+                        type="search"
+                        value={filters[h.key] || ''}
+                        onChange={(e) => onFilterChange(h.key, e.target.value)}
+                        placeholder=""
+                      />
+                    )}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {sortedRows.map((row) => (
+                <tr
+                  key={row.id ?? `${row.code ?? row.name}-${row.description ?? row.address}`}
+                  className={String(row.id) === String(selectedRowId) ? 'selected' : ''}
+                  onClick={() => (onRowSelect ? onRowSelect(row) : onSelect(row))}
+                  onDoubleClick={() => onSelect(row)}
+                >
+                  {columns.render(row)}
+                </tr>
+              ))}
+              {sortedRows.length === 0 && (
+                <tr>
+                  <td colSpan={columns.colSpan}>No records found.</td>
+                </tr>
+              )}
+            </tbody>
           </table>
         </div>
 
-        <div className="etr-po-search-actions">
+        <div className="etr-po-modal-actions">
           <button type="button" onClick={onRefresh}>Refresh List</button>
           <div>
             <button type="button" onClick={onClose}>Cancel</button>
-            <button type="button" onClick={() => onSelect(selectedRow)} disabled={!selectedRow}>Ok</button>
+            <button type="button" onClick={() => onSelect(selectedRow)} disabled={!selectedRow}>
+              Ok
+            </button>
           </div>
         </div>
-        {error ? <div className="etr-po-search-error">{error}</div> : null}
-        {error ? <div className="etr-po-search-error">{error}</div> : null}
+        {error && <div className="etr-po-search-error">{error}</div>}
       </section>
     </div>
   );
-}
+};
 
+// ---------- Main Component ----------
 export default function PurchaseOrder() {
-  const [rows, setRows] = useState([createBlankRow()]);
-  const [vendors, setVendors] = useState([]);
-  const [companies, setCompanies] = useState([]);
-  const [deliveryAddresses, setDeliveryAddresses] = useState([]);
-  const [purchaseOrders, setPurchaseOrders] = useState([]);
+  // ---- State ----
   const [formData, setFormData] = useState({
     id: '',
     status: 1,
@@ -320,245 +373,374 @@ export default function PurchaseOrder() {
     cancelledBy: '',
     cancelRemarks: '',
   });
-
-  const [lookupType, setLookupType] = useState(null);
-  const [lookupFilters, setLookupFilters] = useState({ code: '', name: '', third: '' });
-  const [lookupSelectedRow, setLookupSelectedRow] = useState(null);
-  const [lookupLoading, setLookupLoading] = useState(false);
-  const [lookupError, setLookupError] = useState('');
-  const [saveStatus, setSaveStatus] = useState({ message: '', error: '' });
-  const [saveInProgress, setSaveInProgress] = useState(false);
-
-  // Missing state declarations
-  const [termsList, setTermsList] = useState([]);
-  const [items, setItems] = useState([]);
-  const [activeRowId, setActiveRowId] = useState(null);
+  const [rows, setRows] = useState([createBlankRow()]);
   const [formErrors, setFormErrors] = useState({});
 
-  const updateForm = (field, value) => {
-    setFormData((current) => ({ ...current, [field]: value }));
-  };
+  // Catalog data
+  const [catalog, setCatalog] = useState({
+    vendors: [],
+    companies: [],
+    deliveryAddresses: [],
+    purchaseOrders: [],
+    termsList: [],
+    items: [],
+  });
 
-  const openLookup = (type) => {
-    if (Number(formData.status || 1) !== 1) return;
-    setLookupType(type);
-    setLookupFilters({ code: '', name: '', third: '' });
-    setLookupSelectedRow(null);
-    setLookupError('');
-    refreshLookupRows(type);
-  };
+  // Lookup state
+  const [lookup, setLookup] = useState({
+    type: null, // 'vendor' | 'company' | 'address' | 'item' | 'po'
+    filters: { code: '', name: '', third: '' },
+    selectedRow: null,
+    loading: false,
+    error: '',
+  });
 
-  const closeLookup = () => {
-    setLookupType(null);
-    setLookupSelectedRow(null);
-  };
+  // Save state
+  const [saveState, setSaveState] = useState({ type: 'idle', message: '' }); // idle | loading | success | error
+  const [activeRowId, setActiveRowId] = useState(null);
 
-  const handleLookupSelection = (row) => {
-    setLookupSelectedRow(row);
-  };
+  // ---- Derived ----
+  const isOpen = Number(formData.status || 1) === 1;
+  const isNew = !formData.id;
 
-  const confirmLookupSelection = (selected) => {
-    if (!selected) return;
-
-    if (lookupType === 'po') {
-      loadPurchaseOrderDetails(selected.id);
-    } else if (lookupType === 'vendor') {
-      handleVendorSelect(selected.id);
-      if (formErrors.vendorId) setFormErrors((curr) => ({ ...curr, vendorId: '' }));
-    } else if (lookupType === 'company') {
-      const selectedCompany = companies.find((company) => String(company.id) === String(selected.id));
-      updateForm('companyId', String(selected.id));
-      updateForm('company', selectedCompany ? selectedCompany.description : selected.description || '');
-      if (formErrors.companyId) setFormErrors((curr) => ({ ...curr, companyId: '' }));
-    } else if (lookupType === 'address') {
-      handleDeliveryAddressSelect(selected.id);
-      if (formErrors.deliveryAddressId) setFormErrors((curr) => ({ ...curr, deliveryAddressId: '' }));
-    } else if (lookupType === 'item') {
-      setRows((currentRows) => currentRows.map((row) =>
-        row.id === activeRowId 
-          ? { 
-              ...row, 
-              itemCode: selected.code, 
-              itemDescription: selected.description, 
-              unit: selected.unit 
-            } 
-          : row
-      ));
-      setActiveRowId(null);
+  // ---- API Helpers ----
+  const apiCall = useCallback(async (path, options = {}) => {
+    const token = getToken();
+    const url = buildApiUrl(path);
+    const headers = {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...options.headers,
+    };
+    const response = await fetch(url, { ...options, headers });
+    if (!response.ok) {
+      let errorMsg = response.statusText || String(response.status);
+      try {
+        const body = await response.json();
+        if (body?.message) errorMsg = body.message;
+      } catch {
+        // ignore
+      }
+      throw new Error(errorMsg);
     }
+    const json = await response.json();
+    return json;
+  }, []);
 
-    closeLookup();
-  };
+  const fetchJson = useCallback(
+    async (path, signal) => {
+      const json = await apiCall(path, { signal });
+      return getApiCollection(json);
+    },
+    [apiCall]
+  );
 
-  const isActionDisabled = (actionId) => {
-    const isNew = !formData.id;
-    const status = Number(formData.status || 1);
+  // ---- Load data ----
+  const loadVendorAddresses = useCallback(
+    async (vendorId, signal) => {
+      if (!vendorId) {
+        setCatalog((prev) => ({ ...prev, deliveryAddresses: [] }));
+        return [];
+      }
+      const addresses = await fetchJson(
+        `${VENDOR_ADDRESSES_ENDPOINT}?vendorId=${encodeURIComponent(vendorId)}`,
+        signal
+      );
+      setCatalog((prev) => ({ ...prev, deliveryAddresses: addresses }));
+      return addresses;
+    },
+    [fetchJson]
+  );
 
-    switch (actionId) {
-      case 'new':
-      case 'edit':
-      case 'undo':
-        return false;
-      case 'save':
-        return saveInProgress || status !== 1;
-      case 'delete':
-        return isNew || status !== 1;
-      case 'print':
-        return isNew;
-      case 'approve':
-        return isNew || status !== 1;
-      case 'cancel':
-        return isNew || status !== 1;
-      case 'closed':
-        return isNew || status !== 2;
-      default:
-        return true;
+  const loadPurchaseOrderDetails = useCallback(
+    async (id) => {
+      try {
+        const data = await fetchJson(`${PURCHASE_ORDERS_ENDPOINT}/${id}`);
+        setFormData({
+          id: String(data.id || ''),
+          status: data.status || 1,
+          poNumber: data.poNumber || '',
+          purchaseDate: data.purchaseDate ? data.purchaseDate.split('T')[0] : '',
+          vendorId: String(data.vendorId || ''),
+          vendorCode: data.vendorCode || '',
+          vendorName: data.vendorName || '',
+          vendorAddress: data.vendorAddress || '',
+          currency: data.currency || 'PHP - Philippine Peso',
+          deliveryDate: data.deliveryDate ? data.deliveryDate.split('T')[0] : '',
+          terms: String(data.terms || ''),
+          companyId: String(data.companyId || ''),
+          company: data.company || '',
+          comments: data.comments || '',
+          deliveryAddressId: String(data.deliveryAddressId || ''),
+          deliveryAddress: data.deliveryAddress || '',
+          referenceType: data.referenceType || '',
+          referenceNo: data.referenceNo || '',
+          createdBy: data.createdBy || '',
+          modifiedBy: data.modifiedBy || '',
+          approvedBy: data.approvedBy || '',
+          cancelledBy: data.cancelledBy || '',
+          cancelRemarks: data.cancelRemarks || '',
+        });
+        setRows(
+          (data.lines || []).map((line, idx) => ({
+            id: `po-line-${idx}-${Date.now()}`,
+            selected: false,
+            itemCode: line.itemCode || '',
+            itemDescription: line.itemDescription || '',
+            free: line.free || false,
+            unit: line.unit || '',
+            quantity: line.quantity || 0,
+            purchaseCost: line.purchaseCost || 0,
+            comments: line.comments || '',
+          }))
+        );
+        setFormErrors({});
+      } catch (err) {
+        setSaveState({ type: 'error', message: err.message });
+      }
+    },
+    [fetchJson]
+  );
+
+  // ---- Form update ----
+  const updateForm = useCallback((field, value) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
+    setFormErrors((prev) => ({ ...prev, [field]: undefined }));
+  }, []);
+
+  // ---- Lookup ----
+  const openLookup = useCallback(
+    (type) => {
+      if (!isOpen && type !== 'po') return; // only allow lookup when open, except for PO search
+      setLookup({
+        type,
+        filters: { code: '', name: '', third: '' },
+        selectedRow: null,
+        loading: false,
+        error: '',
+      });
+      refreshLookupRows(type);
+    },
+    [isOpen]
+  );
+
+  const closeLookup = useCallback(() => {
+    setLookup((prev) => ({ ...prev, type: null, selectedRow: null }));
+  }, []);
+
+  const refreshLookupRows = useCallback(
+    async (typeOverride) => {
+      const activeType = typeOverride ?? lookup.type;
+      if (!activeType) return;
+      setLookup((prev) => ({ ...prev, loading: true, error: '' }));
+      try {
+        let data = [];
+        if (activeType === 'po') {
+          data = await fetchJson(PURCHASE_ORDERS_ENDPOINT);
+          setCatalog((prev) => ({ ...prev, purchaseOrders: data }));
+        } else if (activeType === 'vendor') {
+          data = await fetchJson(`${VENDORS_ENDPOINT}?query=`);
+          setCatalog((prev) => ({ ...prev, vendors: data }));
+        } else if (activeType === 'company') {
+          data = await fetchJson(COMPANIES_ENDPOINT);
+          setCatalog((prev) => ({ ...prev, companies: data }));
+        } else if (activeType === 'address') {
+          data = await loadVendorAddresses(formData.vendorId);
+        } else if (activeType === 'item') {
+          data = await fetchJson(ITEMS_ENDPOINT);
+          setCatalog((prev) => ({ ...prev, items: data }));
+        }
+        // For address, data already set via loadVendorAddresses
+        if (activeType !== 'address') {
+          // already set
+        }
+      } catch (err) {
+        setLookup((prev) => ({ ...prev, error: err.message || 'Unable to reload list.' }));
+      } finally {
+        setLookup((prev) => ({ ...prev, loading: false }));
+      }
+    },
+    [lookup.type, fetchJson, loadVendorAddresses, formData.vendorId]
+  );
+
+  const confirmLookupSelection = useCallback(
+    (selected) => {
+      if (!selected) return;
+      const { type } = lookup;
+      if (type === 'po') {
+        loadPurchaseOrderDetails(selected.id);
+      } else if (type === 'vendor') {
+        handleVendorSelect(selected.id);
+      } else if (type === 'company') {
+        const company = catalog.companies.find((c) => String(c.id) === String(selected.id));
+        updateForm('companyId', String(selected.id));
+        updateForm('company', company ? company.description : selected.description || '');
+      } else if (type === 'address') {
+        handleDeliveryAddressSelect(selected.id);
+      } else if (type === 'item') {
+        setRows((current) =>
+          current.map((row) =>
+            row.id === activeRowId
+              ? {
+                  ...row,
+                  itemCode: selected.code,
+                  itemDescription: selected.description,
+                  unit: selected.unit,
+                }
+              : row
+          )
+        );
+        setActiveRowId(null);
+      }
+      closeLookup();
+    },
+    [lookup, catalog, loadPurchaseOrderDetails, updateForm, activeRowId, closeLookup]
+  );
+
+  const setLookupFilter = useCallback((field, value) => {
+    setLookup((prev) => ({ ...prev, filters: { ...prev.filters, [field]: value } }));
+  }, []);
+
+  // ---- Vendor / Address handlers ----
+  const handleVendorSelect = useCallback(
+    async (vendorId) => {
+      const vendor = catalog.vendors.find((v) => String(v.id) === String(vendorId));
+      if (!vendor) return;
+      updateForm('vendorId', String(vendor.id));
+      updateForm('vendorCode', vendor.code);
+      updateForm('vendorName', vendor.name);
+      updateForm('terms', String(vendor.creditTermId || ''));
+      updateForm('deliveryAddressId', '');
+      updateForm('deliveryAddress', '');
+      updateForm('vendorAddress', '');
+      try {
+        const addresses = await loadVendorAddresses(vendor.id);
+        if (addresses.length) {
+          const first = addresses[0];
+          updateForm('vendorAddress', `${first.name} ${first.address}`.trim());
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [catalog.vendors, loadVendorAddresses, updateForm]
+  );
+
+  const handleDeliveryAddressSelect = useCallback(
+    (addressId) => {
+      const address = catalog.deliveryAddresses.find((a) => String(a.id) === String(addressId));
+      if (!address) {
+        updateForm('deliveryAddressId', '');
+        updateForm('deliveryAddress', '');
+        return;
+      }
+      updateForm('deliveryAddressId', String(address.id));
+      updateForm('deliveryAddress', address.address);
+    },
+    [catalog.deliveryAddresses, updateForm]
+  );
+
+  // ---- Lines ----
+  const updateRow = useCallback((rowId, field, value) => {
+    setRows((current) =>
+      current.map((row) => (row.id === rowId ? { ...row, [field]: value } : row))
+    );
+  }, []);
+
+  const deleteSelectedRows = useCallback(() => {
+    setRows((current) => current.filter((row) => !row.selected));
+  }, []);
+
+  // Auto-add blank row
+  useEffect(() => {
+    if (!isOpen) return;
+    setRows((current) => ensureEmptyRow(current));
+  }, [rows, isOpen]);
+
+  // Clear item line error when an item is added
+  useEffect(() => {
+    const hasItem = rows.some((r) => r.itemCode?.trim());
+    if (hasItem && formErrors.lines) {
+      setFormErrors((prev) => ({ ...prev, lines: undefined }));
     }
-  };
+  }, [rows, formErrors.lines]);
 
-  const validateForm = () => {
+  // ---- Validation ----
+  const validateForm = useCallback(() => {
     const errors = {};
-    if (!formData.poNumber || !formData.poNumber.trim()) {
-      errors.poNumber = 'PO Number is required.';
-    }
-    if (!formData.vendorId) {
-      errors.vendorId = 'Vendor (Supplier) is required.';
-    }
-    if (!formData.companyId) {
-      errors.companyId = 'Company is required.';
-    }
-    if (!formData.deliveryAddressId) {
-      errors.deliveryAddressId = 'Delivery address is required.';
-    }
-    const nonEmptyLines = rows.filter((row) => row.itemCode && row.itemCode.trim());
-    if (nonEmptyLines.length === 0) {
-      errors.lines = 'At least one item line is required.';
-    }
+    if (!formData.poNumber?.trim()) errors.poNumber = 'PO Number is required.';
+    if (!formData.vendorId) errors.vendorId = 'Vendor (Supplier) is required.';
+    if (!formData.companyId) errors.companyId = 'Company is required.';
+    if (!formData.deliveryAddressId) errors.deliveryAddressId = 'Delivery address is required.';
+    const hasItem = rows.some((r) => r.itemCode?.trim());
+    if (!hasItem) errors.lines = 'At least one item line is required.';
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
-  };
+  }, [formData, rows]);
 
-  const setLookupFilter = (field, value) => {
-    setLookupFilters((current) => ({ ...current, [field]: value }));
-  };
-
-  const openItemLookup = (rowId) => {
-    if (Number(formData.status || 1) !== 1) return;
-    setActiveRowId(rowId);
-    openLookup('item');
-  };
-
-  const refreshLookupRows = async (typeOverride) => {
-    const activeType = (typeof typeOverride === 'string' ? typeOverride : null) ?? lookupType;
-    if (!activeType) return;
-
-    setLookupLoading(true);
-    setLookupError('');
-
-    try {
-      if (activeType === 'po') {
-        const poItems = await fetchJson(PURCHASE_ORDERS_ENDPOINT, null);
-        setPurchaseOrders(poItems);
-      } else if (activeType === 'vendor') {
-        const vendorItems = await fetchJson(`${VENDORS_ENDPOINT}?query=`, null);
-        setVendors(vendorItems);
-      } else if (activeType === 'company') {
-        const companyItems = await fetchJson(COMPANIES_ENDPOINT, null);
-        setCompanies(companyItems);
-      } else if (activeType === 'address') {
-        await loadVendorAddresses(formData.vendorId, null);
-      } else if (activeType === 'item') {
-        const itemRows = await fetchJson('/api/purchase-orders/items?query=', null);
-        setItems(itemRows);
-      }
-    } catch (error) {
-      setLookupError(error.message || 'Unable to reload list.');
-    } finally {
-      setLookupLoading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    setSaveStatus({ message: '', error: '' });
-    
+  // ---- Save ----
+  const handleSave = useCallback(async () => {
     if (!validateForm()) {
-      setSaveStatus({ message: '', error: 'Please correct the validation errors below.' });
+      setSaveState({ type: 'error', message: 'Please correct the validation errors below.' });
       return;
     }
-
-    setSaveInProgress(true);
-
-    const purchaseOrderId = Number(formData.id || 0);
-    const method = purchaseOrderId > 0 ? 'PUT' : 'POST';
-    const url = purchaseOrderId > 0 
-      ? `${PURCHASE_ORDERS_ENDPOINT}/${purchaseOrderId}` 
-      : PURCHASE_ORDERS_ENDPOINT;
-
+    setSaveState({ type: 'loading', message: '' });
+    const id = Number(formData.id || 0);
+    const method = id > 0 ? 'PUT' : 'POST';
+    const url = id > 0 ? `${PURCHASE_ORDERS_ENDPOINT}/${id}` : PURCHASE_ORDERS_ENDPOINT;
     try {
-      const token = getToken();
-      const response = await fetch(buildApiUrl(url), {
-        method: method,
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({
-          id: purchaseOrderId > 0 ? purchaseOrderId : undefined,
-          poNumber: formData.poNumber,
-          purchaseDate: formData.purchaseDate,
-          vendorId: Number(formData.vendorId || 0),
-          vendorCode: formData.vendorCode,
-          vendorName: formData.vendorName,
-          vendorAddress: formData.vendorAddress,
-          currency: formData.currency,
-          deliveryDate: formData.deliveryDate,
-          terms: formData.terms,
-          companyId: Number(formData.companyId || 0),
-          company: formData.company,
-          comments: formData.comments,
-          deliveryAddressId: Number(formData.deliveryAddressId || 0),
-          deliveryAddress: formData.deliveryAddress,
-          referenceType: formData.referenceType,
-          referenceNo: formData.referenceNo,
-          createdBy: formData.createdBy,
-          modifiedBy: formData.modifiedBy,
-          approvedBy: formData.approvedBy,
-          cancelledBy: formData.cancelledBy,
-          cancelRemarks: formData.cancelRemarks,
-          lines: rows
-            .filter((row) => row.itemCode && row.itemCode.trim() !== '')
-            .map((row) => ({
-              itemCode: row.itemCode,
-              itemDescription: row.itemDescription,
-              free: row.free,
-              unit: row.unit,
-              quantity: Number(row.quantity),
-              purchaseCost: Number(row.purchaseCost),
-              comments: row.comments,
-            })),
-        }),
-      });
-
-      if (!response.ok) {
-        const errorBody = await response.json().catch(() => null);
-        throw new Error(errorBody?.message || `Failed to save purchase order: ${response.status}`);
+      const payload = {
+        id: id > 0 ? id : undefined,
+        poNumber: formData.poNumber,
+        purchaseDate: formData.purchaseDate,
+        vendorId: Number(formData.vendorId || 0),
+        vendorCode: formData.vendorCode,
+        vendorName: formData.vendorName,
+        vendorAddress: formData.vendorAddress,
+        currency: formData.currency,
+        deliveryDate: formData.deliveryDate,
+        terms: formData.terms,
+        companyId: Number(formData.companyId || 0),
+        company: formData.company,
+        comments: formData.comments,
+        deliveryAddressId: Number(formData.deliveryAddressId || 0),
+        deliveryAddress: formData.deliveryAddress,
+        referenceType: formData.referenceType,
+        referenceNo: formData.referenceNo,
+        createdBy: formData.createdBy,
+        modifiedBy: formData.modifiedBy,
+        approvedBy: formData.approvedBy,
+        cancelledBy: formData.cancelledBy,
+        cancelRemarks: formData.cancelRemarks,
+        lines: rows
+          .filter((r) => r.itemCode?.trim())
+          .map((r) => ({
+            itemCode: r.itemCode,
+            itemDescription: r.itemDescription,
+            free: r.free,
+            unit: r.unit,
+            quantity: Number(r.quantity),
+            purchaseCost: Number(r.purchaseCost),
+            comments: r.comments,
+          })),
+      };
+      const result = await apiCall(url, { method, body: JSON.stringify(payload) });
+      setSaveState({ type: 'success', message: result?.message || 'Purchase order saved successfully.' });
+      if (id === 0 && result?.purchaseOrderId) {
+        loadPurchaseOrderDetails(result.purchaseOrderId);
+      } else if (id > 0) {
+        loadPurchaseOrderDetails(id);
       }
-
-      const saved = await response.json();
-      setSaveStatus({ message: saved?.message || 'Purchase order saved successfully.', error: '' });
-      if (purchaseOrderId === 0 && saved?.purchaseOrderId) {
-        loadPurchaseOrderDetails(saved.purchaseOrderId);
-      } else if (purchaseOrderId > 0) {
-        loadPurchaseOrderDetails(purchaseOrderId);
-      }
-    } catch (error) {
-      setSaveStatus({ message: '', error: error.message || 'Unable to save purchase order.' });
+    } catch (err) {
+      setSaveState({ type: 'error', message: err.message || 'Unable to save purchase order.' });
     } finally {
-      setSaveInProgress(false);
+      setSaveState((prev) => ({ ...prev, type: prev.type === 'loading' ? 'idle' : prev.type }));
     }
-  };
+  }, [validateForm, formData, rows, apiCall, loadPurchaseOrderDetails]);
 
-  const handleNew = () => {
+  // ---- Actions (New, Undo, Delete, etc.) ----
+  const handleNew = useCallback(() => {
     setFormData({
       id: '',
       status: 1,
@@ -585,304 +767,128 @@ export default function PurchaseOrder() {
       cancelRemarks: '',
     });
     setRows([createBlankRow()]);
-    setSaveStatus({ message: '', error: '' });
     setFormErrors({});
-  };
+    setSaveState({ type: 'idle', message: '' });
+  }, []);
 
-  const loadPurchaseOrderDetails = async (id) => {
-    try {
-      const token = getToken();
-      const response = await fetch(buildApiUrl(`${PURCHASE_ORDERS_ENDPOINT}/${id}`), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!response.ok) throw new Error('Failed to fetch purchase order details.');
-      const data = await response.json();
-      
-      setFormData({
-        id: String(data.id || ''),
-        status: data.status || 1,
-        poNumber: data.poNumber || '',
-        purchaseDate: data.purchaseDate ? data.purchaseDate.split('T')[0] : '',
-        vendorId: String(data.vendorId || ''),
-        vendorCode: data.vendorCode || '',
-        vendorName: data.vendorName || '',
-        vendorAddress: data.vendorAddress || '',
-        currency: data.currency || 'PHP - Philippine Peso',
-        deliveryDate: data.deliveryDate ? data.deliveryDate.split('T')[0] : '',
-        terms: String(data.terms || ''),
-        companyId: String(data.companyId || ''),
-        company: data.company || '',
-        comments: data.comments || '',
-        deliveryAddressId: String(data.deliveryAddressId || ''),
-        deliveryAddress: data.deliveryAddress || '',
-        referenceType: data.referenceType || '',
-        referenceNo: data.referenceNo || '',
-        createdBy: data.createdBy || '',
-        modifiedBy: data.modifiedBy || '',
-        approvedBy: data.approvedBy || '',
-        cancelledBy: data.cancelledBy || '',
-        cancelRemarks: data.cancelRemarks || '',
-      });
-
-      setRows((data.lines || []).map((line, idx) => ({
-        id: `po-line-${idx}-${Date.now()}`,
-        selected: false,
-        itemCode: line.itemCode || '',
-        itemDescription: line.itemDescription || '',
-        free: line.free || false,
-        unit: line.unit || '',
-        quantity: line.quantity || 0,
-        purchaseCost: line.purchaseCost || 0,
-        comments: line.comments || '',
-      })));
-    } catch (error) {
-      setSaveStatus({ message: '', error: error.message });
-    }
-  };
-
-  const handleDelete = async () => {
-    const purchaseOrderId = Number(formData.id || 0);
-    if (purchaseOrderId <= 0) return;
-    if (!window.confirm('Are you sure you want to delete this purchase order?')) return;
-    
-    try {
-      const token = getToken();
-      const response = await fetch(buildApiUrl(`${PURCHASE_ORDERS_ENDPOINT}/${purchaseOrderId}`), {
-        method: 'DELETE',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!response.ok) throw new Error('Failed to delete purchase order.');
-      alert('Purchase order deleted successfully.');
-      handleNew();
-    } catch (error) {
-      setSaveStatus({ message: '', error: error.message });
-    }
-  };
-
-  const handleUndo = () => {
-    const purchaseOrderId = Number(formData.id || 0);
-    if (purchaseOrderId > 0) {
-      loadPurchaseOrderDetails(purchaseOrderId);
+  const handleUndo = useCallback(() => {
+    if (formData.id) {
+      loadPurchaseOrderDetails(formData.id);
     } else {
       handleNew();
     }
-  };
+  }, [formData.id, loadPurchaseOrderDetails, handleNew]);
 
-  const handlePrint = () => {
-    window.print();
-  };
-
-  const handleApprove = async () => {
-    const purchaseOrderId = Number(formData.id || 0);
-    if (purchaseOrderId <= 0) return;
-    if (!window.confirm('Are you sure you want to approve this purchase order?')) return;
-    
+  const handleDelete = useCallback(async () => {
+    const id = Number(formData.id);
+    if (!id || !window.confirm('Are you sure you want to delete this purchase order?')) return;
     try {
-      const token = getToken();
-      const response = await fetch(buildApiUrl(`${PURCHASE_ORDERS_ENDPOINT}/${purchaseOrderId}/approve`), {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!response.ok) throw new Error('Failed to approve purchase order.');
-      setSaveStatus({ message: 'Purchase order approved successfully.', error: '' });
-      loadPurchaseOrderDetails(purchaseOrderId);
-    } catch (error) {
-      setSaveStatus({ message: '', error: error.message });
-    }
-  };
-
-  const handleCancel = async () => {
-    const purchaseOrderId = Number(formData.id || 0);
-    if (purchaseOrderId <= 0) return;
-    const reason = window.prompt('Enter cancellation remarks:');
-    if (reason === null) return;
-    
-    try {
-      const token = getToken();
-      const response = await fetch(buildApiUrl(`${PURCHASE_ORDERS_ENDPOINT}/${purchaseOrderId}/cancel`), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-        body: JSON.stringify({ reason }),
-      });
-      if (!response.ok) throw new Error('Failed to cancel purchase order.');
-      setSaveStatus({ message: 'Purchase order cancelled successfully.', error: '' });
-      loadPurchaseOrderDetails(purchaseOrderId);
-    } catch (error) {
-      setSaveStatus({ message: '', error: error.message });
-    }
-  };
-
-  const handleClose = async () => {
-    const purchaseOrderId = Number(formData.id || 0);
-    if (purchaseOrderId <= 0) return;
-    if (!window.confirm('Are you sure you want to close this purchase order?')) return;
-    
-    try {
-      const token = getToken();
-      const response = await fetch(buildApiUrl(`${PURCHASE_ORDERS_ENDPOINT}/${purchaseOrderId}/close`), {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!response.ok) throw new Error('Failed to close purchase order.');
-      setSaveStatus({ message: 'Purchase order closed successfully.', error: '' });
-      loadPurchaseOrderDetails(purchaseOrderId);
-    } catch (error) {
-      setSaveStatus({ message: '', error: error.message });
-    }
-  };
-
-  const handleToolbarAction = (actionId) => {
-    if (actionId === 'save') {
-      handleSave();
-    } else if (actionId === 'new') {
+      await apiCall(`${PURCHASE_ORDERS_ENDPOINT}/${id}`, { method: 'DELETE' });
+      alert('Purchase order deleted successfully.');
       handleNew();
-    } else if (actionId === 'edit') {
-      openLookup('po');
-    } else if (actionId === 'delete') {
-      handleDelete();
-    } else if (actionId === 'undo') {
-      handleUndo();
-    } else if (actionId === 'print') {
-      handlePrint();
-    } else if (actionId === 'approve') {
-      handleApprove();
-    } else if (actionId === 'cancel') {
-      handleCancel();
-    } else if (actionId === 'closed') {
-      handleClose();
+    } catch (err) {
+      setSaveState({ type: 'error', message: err.message });
     }
-  };
+  }, [formData.id, apiCall, handleNew]);
 
-  const fetchJson = async (path, signal) => {
-    const token = getToken();
-    const url = buildApiUrl(path);
-    const response = await fetch(url, {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      },
-      signal,
-    });
+  const handlePrint = useCallback(() => window.print(), []);
 
-    console.debug('[PurchaseOrder] fetch', { url, status: response.status, ok: response.ok, tokenPresent: !!token });
-
-    if (!response.ok) {
-      let errorText = response.statusText || String(response.status);
+  // Generic action: approve, cancel, close
+  const performAction = useCallback(
+    async (action, confirmMsg, promptMsg = null) => {
+      const id = Number(formData.id);
+      if (!id) return;
+      if (confirmMsg && !window.confirm(confirmMsg)) return;
+      let payload = {};
+      if (promptMsg) {
+        const reason = window.prompt(promptMsg);
+        if (reason === null) return;
+        payload = { reason };
+      }
       try {
-        const body = await response.json();
-        if (body?.message) {
-          errorText = body.message;
-        }
-      } catch {
-        // ignore parse errors
+        await apiCall(`${PURCHASE_ORDERS_ENDPOINT}/${id}/${action}`, {
+          method: 'POST',
+          body: JSON.stringify(payload),
+        });
+        setSaveState({ type: 'success', message: `Purchase order ${action}ed successfully.` });
+        loadPurchaseOrderDetails(id);
+      } catch (err) {
+        setSaveState({ type: 'error', message: err.message });
       }
-      throw new Error(`Failed to fetch ${path}: ${errorText}`);
-    }
+    },
+    [formData.id, apiCall, loadPurchaseOrderDetails]
+  );
 
-    const json = await response.json();
-    return getApiCollection(json);
-  };
-
-  const loadVendorAddresses = async (vendorId, signal) => {
-    if (!vendorId) {
-      setDeliveryAddresses([]);
-      return [];
-    }
-
-    const addresses = await fetchJson(`${VENDOR_ADDRESSES_ENDPOINT}?vendorId=${encodeURIComponent(vendorId)}`, signal);
-    setDeliveryAddresses(addresses);
-    return addresses;
-  };
-
-  const handleVendorSelect = async (vendorId) => {
-    const selectedVendor = vendors.find((vendor) => String(vendor.id) === String(vendorId));
-    if (!selectedVendor) {
-      return;
-    }
-
-    setFormData((current) => ({
-      ...current,
-      vendorId: String(selectedVendor.id),
-      vendorCode: selectedVendor.code,
-      vendorName: selectedVendor.name,
-      terms: String(selectedVendor.creditTermId || ''),
-      deliveryAddressId: '',
-      deliveryAddress: '',
-      vendorAddress: '',
-    }));
-
-    try {
-      const addresses = await loadVendorAddresses(selectedVendor.id);
-      const firstAddress = addresses[0];
-      if (firstAddress) {
-        setFormData((current) => ({
-          ...current,
-          vendorAddress: `${firstAddress.name} ${firstAddress.address}`.trim(),
-        }));
+  // ---- Toolbar ----
+  const isActionDisabled = useCallback(
+    (actionId) => {
+      const status = Number(formData.status || 1);
+      switch (actionId) {
+        case 'new':
+        case 'edit':
+        case 'undo':
+          return false;
+        case 'save':
+          return saveState.type === 'loading' || status !== 1 || Object.values(formErrors).some(val => !!val);
+        case 'delete':
+          return isNew || status !== 1;
+        case 'print':
+          return isNew;
+        case 'approve':
+          return isNew || status !== 1;
+        case 'cancel':
+          return isNew || status !== 1;
+        case 'closed':
+          return isNew || status !== 2;
+        default:
+          return true;
       }
-    } catch {
-      setDeliveryAddresses([]);
-    }
-  };
+    },
+    [formData.status, isNew, saveState.type, formErrors]
+  );
 
-  const handleDeliveryAddressSelect = (addressId) => {
-    const selectedAddress = deliveryAddresses.find((item) => String(item.id) === String(addressId));
-
-    if (!selectedAddress) {
-      setFormData((current) => ({ ...current, deliveryAddressId: '', deliveryAddress: '' }));
-      return;
-    }
-
-    setFormData((current) => ({
-      ...current,
-      deliveryAddressId: String(selectedAddress.id),
-      deliveryAddress: selectedAddress.address,
-    }));
-  };
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    const loadOptions = async () => {
-      try {
-        const [vendorItems, companyItems, termItems] = await Promise.all([
-          fetchJson(`${VENDORS_ENDPOINT}?query=`, controller.signal),
-          fetchJson(COMPANIES_ENDPOINT, controller.signal),
-          fetchJson(TERMS_ENDPOINT, controller.signal),
-        ]);
-
-        setVendors(vendorItems);
-        setCompanies(companyItems);
-        setTermsList(termItems);
-
-        // Do not auto-select the first vendor or company. Let the user choose.
-        // The dropdown/search modal will provide the selection.
-      } catch (error) {
-        if (!isAbortError(error)) {
-          console.error('Failed to load vendor, company or term options', error);
-        }
+  const handleToolbarAction = useCallback(
+    (actionId) => {
+      switch (actionId) {
+        case 'save':
+          handleSave();
+          break;
+        case 'new':
+          handleNew();
+          break;
+        case 'edit':
+          openLookup('po');
+          break;
+        case 'delete':
+          handleDelete();
+          break;
+        case 'undo':
+          handleUndo();
+          break;
+        case 'print':
+          handlePrint();
+          break;
+        case 'approve':
+          performAction('approve', 'Are you sure you want to approve this purchase order?');
+          break;
+        case 'cancel':
+          performAction('cancel', null, 'Enter cancellation remarks:');
+          break;
+        case 'closed':
+          performAction('close', 'Are you sure you want to close this purchase order?');
+          break;
+        default:
+          break;
       }
-    };
+    },
+    [handleSave, handleNew, openLookup, handleDelete, handleUndo, handlePrint, performAction]
+  );
 
-    loadOptions();
-
-    return () => {
-      controller.abort();
-    };
-  }, []);
-
-  const isAbortError = (error) => {
-    return error?.name === 'AbortError' || error?.message === 'The operation was aborted.';
-  };
-
+  // ---- Totals ----
   const totals = useMemo(() => {
     const grossTotal = rows
-      .filter((row) => row.itemCode && row.itemCode.trim() !== '')
-      .reduce((sum, row) => sum + (Number(row.quantity) * Number(row.purchaseCost)), 0);
+      .filter((r) => r.itemCode?.trim())
+      .reduce((sum, r) => sum + Number(r.quantity) * Number(r.purchaseCost), 0);
     return {
       grossTotal,
       grossDiscount: 0,
@@ -892,48 +898,50 @@ export default function PurchaseOrder() {
     };
   }, [rows]);
 
-  const updateRow = (rowId, field, value) => {
-    setRows((currentRows) => currentRows.map((row) =>
-      row.id === rowId ? { ...row, [field]: value } : row
-    ));
-  };
-
-  const deleteSelectedRows = () => {
-    setRows((currentRows) => {
-      const remainingRows = currentRows.filter((row) => !row.selected);
-      return remainingRows;
-    });
-  };
-
+  // ---- Initial load ----
   useEffect(() => {
-    const isEditable = Number(formData.status || 1) === 1;
-    if (!isEditable) return;
+    const controller = new AbortController();
+    const loadOptions = async () => {
+      try {
+        const [vendors, companies, terms] = await Promise.all([
+          fetchJson(`${VENDORS_ENDPOINT}?query=`, controller.signal),
+          fetchJson(COMPANIES_ENDPOINT, controller.signal),
+          fetchJson(TERMS_ENDPOINT, controller.signal),
+        ]);
+        setCatalog((prev) => ({ ...prev, vendors, companies, termsList: terms }));
+      } catch (err) {
+        if (err.name !== 'AbortError') console.error('Failed to load initial data', err);
+      }
+    };
+    loadOptions();
+    return () => controller.abort();
+  }, [fetchJson]);
 
-    if (rows.length === 0) {
-      setRows([createBlankRow()]);
-      return;
+  // ---- Render ----
+  const { type: lookupType, filters, selectedRow, loading, error } = lookup;
+  const lookupRows = (() => {
+    switch (lookupType) {
+      case 'vendor':
+        return catalog.vendors;
+      case 'company':
+        return catalog.companies;
+      case 'address':
+        return catalog.deliveryAddresses;
+      case 'item':
+        return catalog.items;
+      case 'po':
+        return catalog.purchaseOrders;
+      default:
+        return [];
     }
+  })();
 
-    const lastRow = rows[rows.length - 1];
-    const hasItemCode = lastRow.itemCode && lastRow.itemCode.trim() !== '';
-    const hasEmptyRow = rows.some(row => !row.itemCode || row.itemCode.trim() === '');
-
-    if (hasItemCode && !hasEmptyRow) {
-      setRows((current) => [...current, createBlankRow()]);
-    }
-
-    const nonEmptyRows = rows.filter(row => row.itemCode && row.itemCode.trim() !== '');
-    const emptyRows = rows.filter(row => !row.itemCode || row.itemCode.trim() === '');
-
-    if (emptyRows.length > 1) {
-      const keepEmptyRow = emptyRows[emptyRows.length - 1];
-      setRows([...nonEmptyRows, keepEmptyRow]);
-    }
-  }, [rows, formData.status]);
+  const statusLabel = getStatusLabel(formData.status);
+  const isSaving = saveState.type === 'loading';
 
   return (
     <div className="etr-po-entry">
-      {/* Toolbar – matches withdrawal’s header layout */}
+      {/* Toolbar */}
       <div className="etr-po-toolbar">
         <div>
           <p className="etr-po-kicker">Purchasing</p>
@@ -949,49 +957,61 @@ export default function PurchaseOrder() {
               className={action.id === 'save' ? 'is-primary' : ''}
               onClick={() => handleToolbarAction(action.id)}
             >
-              <span>{action.label}</span>
-              {action.hasMenu ? <span className="etr-po-caret" aria-hidden="true" /> : null}
+              {action.id === 'save' && isSaving ? 'Saving...' : action.label}
             </button>
           ))}
         </div>
       </div>
-      {(saveStatus.message || saveStatus.error) && (
-        <div className={`etr-po-save-status ${saveStatus.error ? 'error' : 'success'}`}>
-          {saveStatus.error || saveStatus.message}
+
+      {/* Save status */}
+      {saveState.message && (
+        <div className={`etr-po-save-status ${saveState.type === 'error' ? 'error' : 'success'}`}>
+          {saveState.message}
         </div>
       )}
 
+      {/* Main form */}
       <section className="etr-po-form-panel">
         <div className="etr-po-form-shell">
           <div className="etr-po-content-column">
             <div className="etr-po-main-stack">
+              {/* Left column */}
               <div className="etr-po-column">
+                {/* General */}
                 <section className="etr-po-card">
                   <div className="etr-po-card-head">
-                    <div>
-                      <p>General</p>
-                    </div>
+                    <p>General</p>
                   </div>
                   <div className="etr-po-form-grid two">
                     <Field label="PO Number" error={formErrors.poNumber}>
-                      <input value={formData.poNumber} onChange={(e) => {
-                        updateForm('poNumber', e.target.value);
-                        if (formErrors.poNumber) setFormErrors(curr => ({ ...curr, poNumber: '' }));
-                      }} />
+                      <input
+                        value={formData.poNumber}
+                        onChange={(e) => updateForm('poNumber', e.target.value)}
+                      />
                     </Field>
                     <Field label="Purchase Date">
-                      <input type="date" value={formData.purchaseDate} onChange={(e) => updateForm('purchaseDate', e.target.value)} />
+                      <input
+                        type="date"
+                        value={formData.purchaseDate}
+                        onChange={(e) => updateForm('purchaseDate', e.target.value)}
+                      />
                     </Field>
                     <Field label="Currency">
-                      <select value={formData.currency} onChange={(e) => updateForm('currency', e.target.value)}>
+                      <select
+                        value={formData.currency}
+                        onChange={(e) => updateForm('currency', e.target.value)}
+                      >
                         <option>PHP - Philippine Peso</option>
                         <option>USD - US Dollar</option>
                       </select>
                     </Field>
                     <Field label="Terms">
-                      <select value={formData.terms} onChange={(e) => updateForm('terms', e.target.value)}>
+                      <select
+                        value={formData.terms}
+                        onChange={(e) => updateForm('terms', e.target.value)}
+                      >
                         <option value="">-- Select Terms --</option>
-                        {termsList.map((term) => (
+                        {catalog.termsList.map((term) => (
                           <option key={term.id} value={String(term.id)}>
                             {term.description}
                           </option>
@@ -1001,94 +1021,59 @@ export default function PurchaseOrder() {
                   </div>
                 </section>
 
+                {/* Vendor */}
                 <section className="etr-po-card">
                   <div className="etr-po-card-head">
-                    <div>
-                      <p>Vendor</p>
-                    </div>
+                    <p>Vendor</p>
                   </div>
                   <div className="etr-po-form-grid two">
-                    <Field label="Vendor (Supplier)" link className="is-wide" onLabelClick={() => openLookup('vendor')} error={formErrors.vendorId}>
-                      <div className="etr-po-split-input" style={{ position: 'relative' }}>
-                        <input value={formData.vendorCode} readOnly />
-                        <input value={formData.vendorName} readOnly />
-                        <button
-                          type="button"
-                          onClick={() => openLookup('vendor')}
-                          aria-label="Search vendor"
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            border: 'none',
-                            background: 'transparent',
-                            padding: 0,
-                            margin: 0,
-                            cursor: 'pointer',
-                            zIndex: 2,
-                          }}
-                        />
-                      </div>
-                    </Field>
+                    <LookupField
+                      label="Vendor (Supplier)"
+                      value={formData.vendorName}
+                      code={formData.vendorCode}
+                      onLookup={() => openLookup('vendor')}
+                      error={formErrors.vendorId}
+                      split
+                    />
                     <Field label="Vendor Address" className="is-wide">
                       <input value={formData.vendorAddress} readOnly />
                     </Field>
-                    <Field label="Company" link className="is-wide" onLabelClick={() => openLookup('company')} error={formErrors.companyId}>
-                      <div style={{ position: 'relative' }}>
-                        <input value={formData.company} readOnly />
-                        <button
-                          type="button"
-                          onClick={() => openLookup('company')}
-                          aria-label="Search company"
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            border: 'none',
-                            background: 'transparent',
-                            padding: 0,
-                            margin: 0,
-                            cursor: 'pointer',
-                            zIndex: 2,
-                          }}
-                        />
-                      </div>
-                    </Field>
+                    <LookupField
+                      label="Company"
+                      value={formData.company}
+                      onLookup={() => openLookup('company')}
+                      error={formErrors.companyId}
+                    />
                     <Field label="Comments" className="is-wide">
-                      <input value={formData.comments} onChange={(e) => updateForm('comments', e.target.value)} />
+                      <input
+                        value={formData.comments}
+                        onChange={(e) => updateForm('comments', e.target.value)}
+                      />
                     </Field>
-                    <Field label="Delivery Address" link className="is-wide" onLabelClick={() => openLookup('address')} error={formErrors.deliveryAddressId}>
-                      <div style={{ position: 'relative' }}>
-                        <textarea rows="4" value={formData.deliveryAddress} readOnly />
-                        <button
-                          type="button"
-                          onClick={() => openLookup('address')}
-                          aria-label="Search delivery address"
-                          style={{
-                            position: 'absolute',
-                            inset: 0,
-                            border: 'none',
-                            background: 'transparent',
-                            padding: 0,
-                            margin: 0,
-                            cursor: 'pointer',
-                            zIndex: 2,
-                          }}
-                        />
-                      </div>
-                    </Field>
+                    <LookupField
+                      label="Delivery Address"
+                      value={formData.deliveryAddress}
+                      onLookup={() => openLookup('address')}
+                      error={formErrors.deliveryAddressId}
+                      isTextarea
+                    />
                   </div>
                 </section>
               </div>
 
+              {/* Right column */}
               <div className="etr-po-column etr-po-column-narrow">
+                {/* Reference */}
                 <section className="etr-po-card">
                   <div className="etr-po-card-head">
-                    <div>
-                      <p>Reference</p>
-                    </div>
+                    <p>Reference</p>
                   </div>
                   <div className="etr-po-form-grid two">
                     <Field label="Reference Type">
-                      <select value={formData.referenceType} onChange={(e) => updateForm('referenceType', e.target.value)}>
+                      <select
+                        value={formData.referenceType}
+                        onChange={(e) => updateForm('referenceType', e.target.value)}
+                      >
                         <option value="" />
                         <option>Purchase Request</option>
                         <option>Sales Order</option>
@@ -1096,34 +1081,25 @@ export default function PurchaseOrder() {
                       </select>
                     </Field>
                     <Field label="Reference No." link>
-                      <input value={formData.referenceNo} onChange={(e) => updateForm('referenceNo', e.target.value)} />
+                      <input
+                        value={formData.referenceNo}
+                        onChange={(e) => updateForm('referenceNo', e.target.value)}
+                      />
                     </Field>
                     <Field label="Delivery Date" className="is-wide">
-                      <input type="date" value={formData.deliveryDate} onChange={(e) => updateForm('deliveryDate', e.target.value)} />
+                      <input
+                        type="date"
+                        value={formData.deliveryDate}
+                        onChange={(e) => updateForm('deliveryDate', e.target.value)}
+                      />
                     </Field>
                   </div>
                 </section>
-                {lookupType && (
-                  <SearchModal
-                    title={lookupType === 'vendor' ? 'Search Vendor' : lookupType === 'company' ? 'Search Company' : lookupType === 'po' ? 'Search Purchase Order' : lookupType === 'item' ? 'Search Item' : 'Search Delivery Address'}
-                    type={lookupType}
-                    rows={lookupType === 'vendor' ? vendors : lookupType === 'company' ? companies : lookupType === 'po' ? purchaseOrders : lookupType === 'item' ? items : deliveryAddresses}
-                    filters={lookupFilters}
-                    selectedRow={lookupSelectedRow}
-                    onFilterChange={setLookupFilter}
-                    onSelect={confirmLookupSelection}
-                    onRowSelect={handleLookupSelection}
-                    onClose={closeLookup}
-                    onRefresh={() => refreshLookupRows()}
-                    error={lookupError}
-                  />
-                )}
 
+                {/* System Logs */}
                 <section className="etr-po-card">
                   <div className="etr-po-card-head">
-                    <div>
-                      <p>System Logs</p>
-                    </div>
+                    <p>System Logs</p>
                   </div>
                   <div className="etr-po-audit-grid">
                     <Field label="Created By">
@@ -1147,50 +1123,82 @@ export default function PurchaseOrder() {
             </div>
           </div>
 
+          {/* Sidebar */}
           <aside className="etr-po-side-stack">
             <section className="etr-po-card etr-po-status-card">
               <div className="etr-po-card-head">
-                <div>
-                  <p>Status</p>
-                </div>
+                <p>Status</p>
               </div>
-              <input value={getStatusLabel(formData.status)} readOnly />
+              <input value={statusLabel} readOnly />
             </section>
 
             <section className="etr-po-card etr-po-summary-card">
               <div className="etr-po-card-head">
-                <div>
-                  <p>Amount</p>
-                </div>
+                <p>Amount</p>
               </div>
               <Field label="Gross Total">
-                <input value={rows.length > 0 ? formatMoney(totals.grossTotal) : ''} readOnly />
+                <input value={formatMoney(totals.grossTotal)} readOnly />
               </Field>
               <Field label="Gross Discount">
-                <input value={rows.length > 0 ? formatMoney(totals.grossDiscount) : ''} readOnly />
+                <input value={formatMoney(totals.grossDiscount)} readOnly />
               </Field>
               <Field label="Vat Amount">
-                <input value={rows.length > 0 && totals.vatAmount ? formatMoney(totals.vatAmount) : ''} readOnly />
+                <input value={formatMoney(totals.vatAmount)} readOnly />
               </Field>
               <Field label="Net Total">
-                <input value={rows.length > 0 ? formatMoney(totals.netTotal) : ''} readOnly />
+                <input value={formatMoney(totals.netTotal)} readOnly />
               </Field>
             </section>
           </aside>
         </div>
       </section>
-      {/* Lines panel – matches withdrawal’s table panel */}
-      <section className="etr-po-table-panel" style={{ borderColor: formErrors.lines ? '#c93636' : undefined }}>
+
+      {/* Lookup Modal */}
+      {lookupType && (
+        <SearchModal
+          title={
+            lookupType === 'vendor'
+              ? 'Search Vendor'
+              : lookupType === 'company'
+              ? 'Search Company'
+              : lookupType === 'po'
+              ? 'Search Purchase Order'
+              : lookupType === 'item'
+              ? 'Search Item'
+              : 'Search Delivery Address'
+          }
+          type={lookupType}
+          rows={lookupRows}
+          filters={filters}
+          selectedRow={selectedRow}
+          onFilterChange={setLookupFilter}
+          onSelect={confirmLookupSelection}
+          onRowSelect={(row) => setLookup((prev) => ({ ...prev, selectedRow: row }))}
+          onClose={closeLookup}
+          onRefresh={() => refreshLookupRows()}
+          error={error}
+        />
+      )}
+
+      {/* Lines Table */}
+      <section
+        className="etr-po-table-panel"
+        style={{ borderColor: formErrors.lines ? '#c93636' : undefined }}
+      >
         <div className="etr-po-table-tools">
           <button
             type="button"
             onClick={deleteSelectedRows}
-            disabled={Number(formData.status || 1) !== 1 || !rows.some((row) => row.selected)}
+            disabled={!isOpen || !rows.some((r) => r.selected)}
           >
             Delete Selected
           </button>
-          <span>Total Items: {rows.filter(r => r.itemCode && r.itemCode.trim()).length}</span>
-          {formErrors.lines ? <span style={{ color: '#b42d2d', borderLeft: 'none', paddingLeft: 0 }}>{formErrors.lines}</span> : null}
+          <span>Total Items: {rows.filter((r) => r.itemCode?.trim()).length}</span>
+          {formErrors.lines && (
+            <span style={{ color: '#b42d2d', borderLeft: 'none', paddingLeft: 0 }}>
+              {formErrors.lines}
+            </span>
+          )}
         </div>
 
         <div className="etr-po-table-wrap">
@@ -1211,7 +1219,6 @@ export default function PurchaseOrder() {
             <tbody>
               {rows.map((row) => {
                 const amount = Number(row.quantity) * Number(row.purchaseCost);
-                const isEditable = Number(formData.status || 1) === 1;
                 return (
                   <tr key={row.id}>
                     <td>
@@ -1219,15 +1226,20 @@ export default function PurchaseOrder() {
                         type="checkbox"
                         checked={row.selected}
                         onChange={(e) => updateRow(row.id, 'selected', e.target.checked)}
-                        disabled={!isEditable}
+                        disabled={!isOpen}
                       />
                     </td>
                     <td>
                       <button
                         type="button"
                         className="etr-po-link"
-                        onClick={() => openItemLookup(row.id)}
-                        disabled={!isEditable}
+                        onClick={() => {
+                          if (isOpen) {
+                            setActiveRowId(row.id);
+                            openLookup('item');
+                          }
+                        }}
+                        disabled={!isOpen}
                       >
                         {row.itemCode || 'Click to Select'}
                       </button>
@@ -1236,8 +1248,13 @@ export default function PurchaseOrder() {
                       <button
                         type="button"
                         className="etr-po-link"
-                        onClick={() => openItemLookup(row.id)}
-                        disabled={!isEditable}
+                        onClick={() => {
+                          if (isOpen) {
+                            setActiveRowId(row.id);
+                            openLookup('item');
+                          }
+                        }}
+                        disabled={!isOpen}
                       >
                         {row.itemDescription || 'Click to Select'}
                       </button>
@@ -1247,14 +1264,14 @@ export default function PurchaseOrder() {
                         type="checkbox"
                         checked={row.free}
                         onChange={(e) => updateRow(row.id, 'free', e.target.checked)}
-                        disabled={!isEditable}
+                        disabled={!isOpen}
                       />
                     </td>
                     <td>
                       <input
                         value={row.unit}
                         onChange={(e) => updateRow(row.id, 'unit', e.target.value)}
-                        readOnly={!isEditable}
+                        readOnly={!isOpen}
                       />
                     </td>
                     <td>
@@ -1262,7 +1279,7 @@ export default function PurchaseOrder() {
                         type="number"
                         value={row.quantity}
                         onChange={(e) => updateRow(row.id, 'quantity', e.target.value)}
-                        readOnly={!isEditable}
+                        readOnly={!isOpen}
                       />
                     </td>
                     <td>
@@ -1271,7 +1288,7 @@ export default function PurchaseOrder() {
                         step="0.0001"
                         value={row.purchaseCost}
                         onChange={(e) => updateRow(row.id, 'purchaseCost', e.target.value)}
-                        readOnly={!isEditable}
+                        readOnly={!isOpen}
                       />
                     </td>
                     <td className="is-money">{formatMoney(amount)}</td>
@@ -1279,7 +1296,7 @@ export default function PurchaseOrder() {
                       <input
                         value={row.comments}
                         onChange={(e) => updateRow(row.id, 'comments', e.target.value)}
-                        readOnly={!isEditable}
+                        readOnly={!isOpen}
                       />
                     </td>
                   </tr>

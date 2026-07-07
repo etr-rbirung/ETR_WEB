@@ -1,4 +1,4 @@
-/* Root variables matching Withdrawal theme */
+/* Root variables */
 .etr-po-entry {
   --po-border: rgba(20, 62, 109, 0.14);
   --po-accent: #1b5a96;
@@ -10,7 +10,7 @@
   min-width: 0;
 }
 
-/* ---------- TOOLBAR (matches withdrawal) ---------- */
+/* ---------- TOOLBAR ---------- */
 .etr-po-toolbar {
   min-width: 0;
   border: 1px solid var(--etr-dashboard-line);
@@ -31,7 +31,6 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
-
 .etr-po-toolbar h1 {
   margin: 0;
   color: var(--po-text);
@@ -72,14 +71,11 @@
   cursor: not-allowed;
   opacity: 0.48;
 }
-
 .etr-po-actions button.is-primary {
   border-color: #165ea4;
   background: linear-gradient(180deg, #0f4f8e 0%, #0c4278 100%);
   color: #ffffff;
 }
-
-
 .etr-po-caret {
   display: inline-block;
   margin-top: 0;
@@ -95,14 +91,12 @@
 .etr-po-form-panel {
   min-width: 0;
 }
-
 .etr-po-form-shell {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 300px;
   gap: 12px;
   min-width: 0;
 }
-
 .etr-po-content-column,
 .etr-po-main-stack,
 .etr-po-side-stack,
@@ -113,11 +107,14 @@
   gap: 12px;
   min-width: 0;
 }
-
 .etr-po-main-stack {
   grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
 }
+.etr-po-audit-grid {
+  grid-template-columns: 1fr 1fr;
+}
 
+/* ---------- CARDS ---------- */
 .etr-po-card,
 .etr-po-table-panel {
   border: 1px solid var(--po-border);
@@ -125,14 +122,12 @@
   background: rgba(255, 255, 255, 0.93);
   box-shadow: 0 18px 45px rgba(23, 60, 100, 0.08);
 }
-
 .etr-po-card {
   display: grid;
   gap: 10px;
   min-width: 0;
   padding: 12px 14px;
 }
-
 .etr-po-card-head {
   display: flex;
   align-items: flex-start;
@@ -140,7 +135,6 @@
   gap: 10px;
   min-width: 0;
 }
-
 .etr-po-card-head p {
   margin: 0 0 5px;
   color: var(--po-accent);
@@ -149,7 +143,6 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
 }
-
 .etr-po-card-head h2 {
   margin: 0;
   color: var(--po-text);
@@ -157,26 +150,23 @@
   line-height: 1.25;
 }
 
+/* ---------- FORM FIELDS ---------- */
 .etr-po-form-grid {
   display: grid;
   gap: 9px 10px;
   min-width: 0;
 }
-
 .etr-po-form-grid.two {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
-
 .etr-po-field {
   display: grid;
   gap: 4px;
   min-width: 0;
 }
-
 .etr-po-field.is-wide {
   grid-column: 1 / -1;
 }
-
 .etr-po-field > button {
   width: max-content;
   max-width: 100%;
@@ -192,12 +182,10 @@
   text-align: left;
   text-transform: uppercase;
 }
-
 .etr-po-field > button.is-link-label {
   color: var(--po-accent);
   cursor: pointer;
 }
-
 .etr-po-field input,
 .etr-po-field select,
 .etr-po-field textarea,
@@ -212,48 +200,58 @@
   font-size: 0.9rem;
   outline: none;
 }
-
 .etr-po-field input[readonly],
 .etr-po-field textarea[readonly],
 .etr-po-status-card > input[readonly] {
   background: #f7fbff;
 }
-
 .etr-po-field.has-error input,
 .etr-po-field.has-error select,
 .etr-po-field.has-error textarea {
   border-color: #c93636;
   background: #fff8f8;
 }
-
 .etr-po-field small {
   color: #b42d2d;
   font-size: 0.76rem;
 }
-
 .etr-po-field input,
 .etr-po-field select,
 .etr-po-status-card > input {
   height: 34px;
   padding: 0 10px;
 }
-
 .etr-po-field textarea {
   min-height: 74px;
   resize: vertical;
   padding: 9px 10px;
 }
-
 .etr-po-field input:focus,
 .etr-po-field select:focus,
 .etr-po-field textarea:focus {
   border-color: var(--po-accent);
   box-shadow: 0 0 0 3px rgba(27, 90, 150, 0.13);
 }
-
 .etr-po-field input[type="number"] {
   text-align: right;
   font-weight: 800;
+}
+
+/* ---------- LOOKUP WRAPPER (replaces inline styles) ---------- */
+.etr-po-lookup-wrapper {
+  position: relative;
+}
+.etr-po-lookup-overlay {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  z-index: 2;
+  width: 100%;
+  height: 100%;
 }
 
 .etr-po-split-input {
@@ -263,86 +261,8 @@
   min-width: 0;
 }
 
-.etr-po-lookup-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 1000;
-  background: rgba(12, 27, 45, 0.5);
-  display: grid;
-  place-items: center;
-  padding: 24px;
-}
-
-.etr-po-lookup-modal {
-  width: min(680px, 100%);
-  max-height: min(90vh, 720px);
-  overflow: auto;
-  border-radius: 16px;
-  background: #ffffff;
-  box-shadow: 0 24px 60px rgba(8, 31, 66, 0.18);
-  padding: 22px;
-}
-
-.etr-po-lookup-head {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 18px;
-}
-
-.etr-po-lookup-head h2 {
-  margin: 0;
-  color: var(--po-text);
-  font-size: 1.05rem;
-}
-
-.etr-po-lookup-search {
-  display: block;
-  margin-bottom: 14px;
-}
-
-.etr-po-lookup-search input {
-  width: 100%;
-  min-width: 0;
-  border: 1px solid rgba(27, 90, 150, 0.18);
-  border-radius: 10px;
-  padding: 10px 12px;
-  font: inherit;
-  font-size: 0.95rem;
-}
-
-.etr-po-lookup-list {
-  display: grid;
-  gap: 10px;
-}
-
-.etr-po-lookup-list button {
-  display: grid;
-  gap: 4px;
-  width: 100%;
-  text-align: left;
-  border: 1px solid rgba(27, 90, 150, 0.18);
-  border-radius: 12px;
-  background: #f7fbff;
-  color: #173652;
-  padding: 12px 14px;
-  cursor: pointer;
-}
-
-.etr-po-lookup-list button strong {
-  display: block;
-  font-size: 0.95rem;
-  font-weight: 800;
-}
-
-.etr-po-lookup-list button span {
-  display: block;
-  color: #4f6f8f;
-  font-size: 0.86rem;
-}
-
-.etr-po-search-backdrop {
+/* ---------- MODAL (unified) ---------- */
+.etr-po-modal-backdrop {
   position: fixed;
   inset: 0;
   z-index: 1000;
@@ -351,8 +271,7 @@
   place-items: center;
   padding: 20px;
 }
-
-.etr-po-search-modal {
+.etr-po-modal {
   width: min(620px, 100%);
   max-height: min(70vh, 520px);
   overflow: hidden;
@@ -363,32 +282,29 @@
   display: grid;
   gap: 8px;
 }
-
-.etr-po-search-head {
+.etr-po-modal-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
 }
-
-.etr-po-search-head h2 {
+.etr-po-modal-head h2 {
   margin: 0;
   font-size: 1rem;
 }
 
+/* ---------- SEARCH TABLE ---------- */
 .etr-po-search-table-wrap {
   overflow: auto;
   border: 1px solid rgba(27, 90, 150, 0.14);
   border-radius: 10px;
   max-height: 240px;
 }
-
 .etr-po-search-table {
   width: 100%;
   border-collapse: collapse;
   table-layout: fixed;
 }
-
 .etr-po-search-table th,
 .etr-po-search-table td {
   padding: 6px 8px;
@@ -399,7 +315,6 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-
 .etr-po-search-table th {
   position: sticky;
   top: 0;
@@ -411,7 +326,6 @@
   cursor: pointer;
   user-select: none;
 }
-
 .etr-po-search-filter-row input {
   width: 100%;
   border: 1px solid rgba(27, 90, 150, 0.18);
@@ -420,33 +334,25 @@
   padding: 5px 8px;
   font: inherit;
 }
-
-.etr-po-search-actions {
-  display: flex;
-  justify-content: space-between;
-  gap: 8px;
-}
-
-.etr-po-search-actions button {
-  min-height: 34px;
-  padding: 0 12px;
-}
-
 .etr-po-search-table tr.selected {
   background: rgba(27, 90, 150, 0.1);
 }
-
 .etr-po-search-table tr:hover {
   background: rgba(27, 90, 150, 0.06);
 }
+.etr-po-search-error {
+  color: #b42d2d;
+  font-size: 0.9rem;
+  padding: 4px 0;
+}
 
-.etr-po-search-actions {
+/* ---------- MODAL ACTIONS (was .etr-po-search-actions) ---------- */
+.etr-po-modal-actions {
   display: flex;
   justify-content: space-between;
   gap: 12px;
 }
-
-.etr-po-search-actions button {
+.etr-po-modal-actions button {
   min-height: 38px;
   border-radius: 10px;
   border: 1px solid rgba(27, 90, 150, 0.18);
@@ -456,34 +362,50 @@
   cursor: pointer;
   font: inherit;
 }
-
-.etr-po-search-actions button:disabled {
+.etr-po-modal-actions button:disabled {
   opacity: 0.45;
   cursor: not-allowed;
 }
-
-.etr-po-search-actions > div {
+.etr-po-modal-actions > div {
   display: flex;
   gap: 10px;
 }
 
+/* ---------- STATUS CARD ---------- */
+.etr-po-status-card > input {
+  background: #f7fbff;
+  font-weight: 800;
+  text-align: center;
+}
+
+/* ---------- SUMMARY CARD ---------- */
 .etr-po-summary-card {
   gap: 9px;
 }
-
 .etr-po-summary-card .etr-po-field input {
   text-align: right;
   font-weight: 800;
 }
-/* ---------- LINES / TABLE PANEL ---------- */
-.etr-po-table-panel {
-  border: 1px solid var(--po-border);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.93);
-  box-shadow: 0 18px 45px rgba(23, 60, 100, 0.08);
-  overflow: hidden;
+
+/* ---------- SAVE STATUS ---------- */
+.etr-po-save-status {
+  padding: 8px 14px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+.etr-po-save-status.success {
+  background: #e3f5e9;
+  color: #0c6b3e;
+}
+.etr-po-save-status.error {
+  background: #fde8e8;
+  color: #b42d2d;
 }
 
+/* ---------- TABLE PANEL ---------- */
+.etr-po-table-panel {
+  overflow: hidden;
+}
 .etr-po-table-tools {
   display: flex;
   flex-wrap: wrap;
@@ -494,7 +416,6 @@
   font-size: 0.86rem;
   font-weight: 800;
 }
-
 .etr-po-table-tools button {
   display: inline-flex;
   align-items: center;
@@ -511,12 +432,10 @@
   font-weight: 800;
   padding: 0 12px;
 }
-
 .etr-po-table-tools button:disabled {
   cursor: not-allowed;
   opacity: 0.48;
 }
-
 .etr-po-table-tools span {
   min-height: 28px;
   border-left: 1px solid rgba(20, 62, 109, 0.14);
@@ -524,12 +443,10 @@
   display: inline-flex;
   align-items: center;
 }
-
 .etr-po-table-wrap {
   overflow: auto;
   border-top: 1px solid var(--po-border);
 }
-
 .etr-po-table {
   width: 100%;
   min-width: 1120px;
@@ -538,7 +455,6 @@
   color: #213f5b;
   font-size: 0.86rem;
 }
-
 .etr-po-table th,
 .etr-po-table td {
   border-right: 1px solid rgba(20, 62, 109, 0.1);
@@ -547,7 +463,6 @@
   text-align: left;
   white-space: nowrap;
 }
-
 .etr-po-table th {
   position: sticky;
   top: 0;
@@ -559,138 +474,20 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
 }
-
 .etr-po-table th:first-child {
   width: 42px;
 }
-
 .etr-po-table tbody tr:hover {
   background: #f7fbff;
 }
-
 .etr-po-table td:first-child {
   text-align: center;
 }
-
 .etr-po-table input,
 .etr-po-table select {
   height: 34px;
   padding: 0 8px;
 }
-
-/* Totals footer */
-.etr-po-totals {
-  display: grid;
-  grid-template-columns: minmax(360px, 1fr) minmax(420px, 1fr);
-  align-items: start;
-  column-gap: 44px;
-  row-gap: 10px;
-  padding: 20px 20px 18px;
-  border-top: 1px solid var(--po-border);
-  background: #ffffff;
-}
-
-.etr-po-total-column {
-  display: grid;
-  gap: 10px;
-  min-width: 0;
-}
-
-.etr-po-total-row {
-  display: grid;
-  grid-template-columns: 150px minmax(120px, 200px);
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-  color: var(--po-muted);
-  font-size: 0.86rem;
-  font-weight: 800;
-}
-
-.etr-po-total-row.has-check {
-  grid-template-columns: 22px 150px minmax(120px, 200px);
-}
-
-.etr-po-total-row.has-extra-input {
-  grid-template-columns: 22px 150px minmax(80px, 1fr) minmax(88px, 120px);
-}
-
-.etr-po-total-row span {
-  white-space: nowrap;
-}
-
-.etr-po-total-row input:not([type="checkbox"]) {
-  width: 100%;
-  height: 32px;
-  min-width: 0;
-  border: 1px solid rgba(27, 90, 150, 0.18);
-  border-radius: 4px;
-  background: #f7fbff;
-  padding: 0 10px;
-  text-align: right;
-  font: inherit;
-  font-weight: 800;
-}
-
-.etr-po-total-row input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
-  justify-self: center;
-  margin: 0;
-}
-.etr-po-total-column:last-child .etr-po-total-row:not(.has-check) {
-  grid-template-columns: 22px 150px minmax(120px, 1fr);
-}
-
-.etr-po-total-column:last-child .etr-po-total-row:not(.has-check) span {
-  grid-column: 2;
-}
-
-.etr-po-total-column:last-child .etr-po-total-row:not(.has-check) input {
-  grid-column: 3;
-}
-
-.etr-po-statusbar {
-  padding: 10px 16px;
-  border-top: 1px solid var(--po-border);
-  color: #587390;
-  font-size: 0.84rem;
-  display: flex;
-  gap: 20px;
-}
-
-/* ---------- RESPONSIVE ---------- */
-@media (max-width: 1180px) {
-  .etr-po-form-shell {
-    grid-template-columns: 1fr;
-  }
-
-  .etr-po-main-stack {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@media (max-width: 900px) {
-  .etr-po-main-stack,
-  .etr-po-totals {
-    grid-template-columns: 1fr;
-  }
-}
-
-@media (max-width: 640px) {
-  .etr-po-form-grid.two {
-    grid-template-columns: 1fr;
-  }
-
-  .etr-po-split-input {
-    grid-template-columns: 1fr;
-  }
-
-  .etr-po-table {
-    min-width: 980px;
-  }
-}
-
 .etr-po-link {
   border: 0;
   background: transparent;
@@ -703,17 +500,47 @@
   width: 100%;
   text-align: left;
 }
-
 .etr-po-link:hover {
   text-decoration: none;
 }
-
 .etr-po-link:focus {
   outline: none;
   text-decoration: none;
 }
-
 .etr-po-link:disabled {
   cursor: not-allowed;
   opacity: 0.7;
-}
+}
+.is-money {
+  font-weight: 800;
+  text-align: right;
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 1180px) {
+  .etr-po-form-shell {
+    grid-template-columns: 1fr;
+  }
+  .etr-po-main-stack {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 900px) {
+  .etr-po-main-stack {
+    grid-template-columns: 1fr;
+  }
+}
+@media (max-width: 640px) {
+  .etr-po-form-grid.two {
+    grid-template-columns: 1fr;
+  }
+  .etr-po-split-input {
+    grid-template-columns: 1fr;
+  }
+  .etr-po-table {
+    min-width: 980px;
+  }
+  .etr-po-audit-grid {
+    grid-template-columns: 1fr;
+  }
+}

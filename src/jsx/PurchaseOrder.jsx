@@ -769,7 +769,17 @@ export default function PurchaseOrder() {
     setRows([createBlankRow()]);
     setFormErrors({});
     setSaveState({ type: 'idle', message: '' });
-  }, []);
+
+    fetchJson(`${PURCHASE_ORDERS_ENDPOINT}/next-po-number`)
+      .then((data) => {
+        if (data?.poNumber) {
+          setFormData((prev) => ({ ...prev, poNumber: data.poNumber }));
+        }
+      })
+      .catch((err) => {
+        console.error('Failed to fetch next PO number', err);
+      });
+  }, [fetchJson]);
 
   const handleUndo = useCallback(() => {
     if (formData.id) {
@@ -898,17 +908,20 @@ export default function PurchaseOrder() {
     };
   }, [rows]);
 
-  // ---- Initial load ----
   useEffect(() => {
     const controller = new AbortController();
     const loadOptions = async () => {
       try {
-        const [vendors, companies, terms] = await Promise.all([
+        const [vendors, companies, terms, poData] = await Promise.all([
           fetchJson(`${VENDORS_ENDPOINT}?query=`, controller.signal),
           fetchJson(COMPANIES_ENDPOINT, controller.signal),
           fetchJson(TERMS_ENDPOINT, controller.signal),
+          fetchJson(`${PURCHASE_ORDERS_ENDPOINT}/next-po-number`, controller.signal),
         ]);
         setCatalog((prev) => ({ ...prev, vendors, companies, termsList: terms }));
+        if (poData?.poNumber) {
+          setFormData((prev) => ({ ...prev, poNumber: poData.poNumber }));
+        }
       } catch (err) {
         if (err.name !== 'AbortError') console.error('Failed to load initial data', err);
       }

@@ -85,7 +85,8 @@
 .etr-journal-mini-actions button:hover,
 .etr-journal-line-toolbar button:hover {
   border-color: rgba(27, 90, 150, 0.35);
-  background: #f5faff;
+  background: #18324b;
+  color: #ffffff;
 }
 
 .etr-journal-actions button:disabled {

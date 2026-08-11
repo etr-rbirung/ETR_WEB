@@ -70,7 +70,7 @@ function LoginForm({ onLoginSuccess }) {
 
     const checkHealth = async () => {
       try {
-        await fetch(buildApiUrl('/api/health'));
+        await fetch(buildApiUrl('/health'));
       } catch {
         if (isMounted) {
           setMessage('Unable to reach the server.');
@@ -91,7 +91,7 @@ function LoginForm({ onLoginSuccess }) {
     setIsSubmitting(true);
 
     try {
-      const res = await fetch(buildApiUrl('/api/login'), {
+      const res = await fetch(buildApiUrl('/login'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -118,7 +118,7 @@ function LoginForm({ onLoginSuccess }) {
 
       saveAuth(sessionData);
       try {
-        await fetch(buildApiUrl('/api/cache/warmup'), {
+        await fetch(buildApiUrl('/cache/warmup'), {
           headers: {
             Authorization: `Bearer ${sessionData.accessToken}`,
           },

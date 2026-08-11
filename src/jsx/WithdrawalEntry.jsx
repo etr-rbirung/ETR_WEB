@@ -3,8 +3,8 @@ import { getToken } from '../services/authStorage';
 import '../css/WithdrawalEntry.css';
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const WITHDRAWALS_ENDPOINT = '/api/withdrawals';
-const COST_UNITS_ENDPOINT = '/api/costunits';
+const WITHDRAWALS_ENDPOINT = '/withdrawals';
+const COST_UNITS_ENDPOINT = '/costunits';
 const defaultWithdrawalTypes = [
   { id: '1', code: '001', description: 'WITHRAWAL' },
   { id: '2', code: '002', description: 'PULL-OUT' },

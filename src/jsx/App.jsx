@@ -45,7 +45,7 @@ function App() {
 
     try {
       if (token) {
-        await fetch(buildApiUrl('/api/login/logout'), {
+        await fetch(buildApiUrl('/login/logout'), {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${token}`,

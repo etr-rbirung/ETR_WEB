@@ -3,7 +3,7 @@ import { getToken } from '../services/authStorage';
 import '../css/PurchaseOrder.css';
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const PURCHASE_ORDERS_ENDPOINT = '/api/purchase-orders';
+const PURCHASE_ORDERS_ENDPOINT = '/purchase-orders';
 const VENDORS_ENDPOINT = `${PURCHASE_ORDERS_ENDPOINT}/vendors`;
 const COMPANIES_ENDPOINT = `${PURCHASE_ORDERS_ENDPOINT}/companies`;
 const VENDOR_ADDRESSES_ENDPOINT = `${PURCHASE_ORDERS_ENDPOINT}/vendor-addresses`;

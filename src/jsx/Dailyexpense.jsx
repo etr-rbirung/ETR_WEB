@@ -3,10 +3,10 @@ import { getToken } from '../services/authStorage';
 import '../css/Dailyexpense.css';
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const ACCOUNT_TITLES_ENDPOINT = '/api/accounttitles';
-const COST_UNITS_ENDPOINT = '/api/costunits';
-const CURRENT_EMPLOYEE_ENDPOINT = '/api/employees/current';
-const DAILY_EXPENSE_ENDPOINT = '/api/daily-expense';
+const ACCOUNT_TITLES_ENDPOINT = '/accounttitles';
+const COST_UNITS_ENDPOINT = '/costunits';
+const CURRENT_EMPLOYEE_ENDPOINT = '/employees/current';
+const DAILY_EXPENSE_ENDPOINT = '/daily-expense';
 const ATTACHMENT_ACCEPT = 'image/*,application/pdf,.pdf';
 const ATTACHMENT_EXTENSION_PATTERN = /\.(avif|bmp|gif|heic|heif|jpeg|jpg|pdf|png|tif|tiff|webp)$/i;
 const ATTACHMENT_IMAGE_EXTENSION_PATTERN = /\.(avif|bmp|gif|heic|heif|jpeg|jpg|png|tif|tiff|webp)$/i;
@@ -677,7 +677,7 @@ export default function ExpenseEntryView({
     const loadPermissions = async () => {
       try {
         const token = getToken();
-        const response = await fetch(buildApiUrl('/api/account-titles/permissions'), {
+        const response = await fetch(buildApiUrl('/account-titles/permissions'), {
           headers: token ? { Authorization: `Bearer ${token}` } : {},
         });
 

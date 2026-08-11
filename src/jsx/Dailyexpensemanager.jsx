@@ -3,12 +3,12 @@ import { getToken } from '../services/authStorage';
 import '../css/Dailyexpensemanager.css';
 
 const apiBaseUrl = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/+$/, '');
-const DAILY_EXPENSE_ENDPOINT = '/api/daily-expense';
+const DAILY_EXPENSE_ENDPOINT = '/daily-expense';
 const DAILY_EXPENSE_GENERATED_NO_ENDPOINT = `${DAILY_EXPENSE_ENDPOINT}/generated-no`;
 const DAILY_EXPENSE_ER_GENERATED_NO_ENDPOINT = `${DAILY_EXPENSE_ENDPOINT}/expense-report-generated-no`;
 const DAILY_EXPENSE_PDF_SUMMARY_ENDPOINT = `${DAILY_EXPENSE_ENDPOINT}/pdf-summary`;
-const COST_UNITS_ENDPOINT = '/api/costunits';
-const CURRENT_EMPLOYEE_ENDPOINT = '/api/employees/current';
+const COST_UNITS_ENDPOINT = '/costunits';
+const CURRENT_EMPLOYEE_ENDPOINT = '/employees/current';
 const MANAGER_PAGE_SIZE = 8;
 const MAX_VISIBLE_PAGE_BUTTONS = 8;
 const REPORT_PRINT_SINGLE_PAGE_ROWS = 27;
